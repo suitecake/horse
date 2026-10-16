@@ -199,9 +199,9 @@ export async function startPlay(root: HTMLElement, data: string) {
       const before = runner.frames;
       runner.tick(sampleInput());
       if (ghost) {
-        // the ghost restarts whenever you do
+        // the ghost restarts whenever you do, and waits for your first input
         if (before > 0 && runner.frames === 0) resetGhost();
-        else if (ghost.frame < clear.length && ghost.status === "playing" && runner.status === "playing")
+        else if (ghost.frame < clear.length && ghost.status === "playing" && runner.status === "playing" && runner.frames > 0)
           step(ghost, clear[ghost.frame]);
       }
       if (wonAt >= 0 && t - wonAt > 600) stage.banner(null);

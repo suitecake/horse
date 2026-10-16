@@ -1,7 +1,7 @@
 // The editor. Paint tiles, press Enter to playtest, clear it to unlock sharing.
 
 import { pack, Reader, unpack, Writer } from "./codec";
-import { isTyping, sampleInput, clearInput } from "./input";
+import { isTyping, sampleInput } from "./input";
 import {
   checkPlayable,
   cloneLevel,
@@ -371,7 +371,6 @@ export async function startEditor(root: HTMLElement) {
     mode = "test";
     testDeaths = 0;
     wonAt = -1;
-    clearInput();
     const snap = cloneLevel(level);
     const fp = fingerprint(snap);
     runner = new Runner(snap, {
