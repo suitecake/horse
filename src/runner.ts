@@ -49,6 +49,8 @@ export class Runner {
       return;
     }
     if (this.sim.status === "won") return;
+    // The clock starts on the first input, not when the level appears.
+    if (this.sim.frame === 0 && input === 0) return;
 
     this.rec.push(input);
     step(this.sim, input);
