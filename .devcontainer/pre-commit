@@ -1,0 +1,15 @@
+#!/bin/sh
+# claude-sandbox gitleaks hook. .devcontainer/initialize.sh copies this into .git/hooks on every
+# container start, so edit it here, not there.
+# Blocks commits whose staged changes look like they contain a secret.
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks isn't installed, so staged changes weren't scanned for secrets" >&2
+  exit 0
+fi
+
+if ! gitleaks git --pre-commit --staged --redact --verbose --no-banner --log-level warn; then
+  echo "pre-commit: commit blocked because gitleaks found what looks like a secret (above)." >&2
+  echo "Remove it from the change. If it's already been pushed anywhere, rotate it." >&2
+  exit 1
+fi

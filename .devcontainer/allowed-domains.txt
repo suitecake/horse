@@ -1,0 +1,17 @@
+# Domains the sandbox may reach, one per line. GitHub's IP ranges are always allowed.
+# Each domain is resolved to IPs once, when the container starts. Rebuild the container after editing.
+
+# Claude
+api.anthropic.com
+
+# npm
+registry.npmjs.org
+
+# VS Code extensions
+marketplace.visualstudio.com
+vscode.blob.core.windows.net
+update.code.visualstudio.com
+
+# Python (uncomment for Python projects)
+# pypi.org
+# files.pythonhosted.org

@@ -1,0 +1,54 @@
+{
+  "name": "Claude Code Sandbox",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TZ": "${localEnv:TZ:America/New_York}"
+    }
+  },
+  "runArgs": ["--cap-add=NET_ADMIN", "--shm-size=1g"],
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code"],
+      "settings": {
+        "editor.formatOnSave": true
+      }
+    }
+  },
+  "remoteUser": "node",
+  // Runs on the host before the container starts: checks .git for tampering, creates the paths the
+  // read-only mounts below need, and installs the gitleaks pre-commit hook
+  "initializeCommand": "bash .devcontainer/initialize.sh",
+  "mounts": [
+    "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
+    // Linux node_modules, kept apart from the host's macOS ones
+    "source=node_modules-${devcontainerId},target=/workspace/node_modules,type=volume",
+    // Read-only: files the host executes or trusts. Without these, code in the container could
+    // rewrite its own sandbox on the next rebuild, or plant a git hook / core.fsmonitor that runs on the host.
+    "source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.git/hooks,target=/workspace/.git/hooks,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.git/config,target=/workspace/.git/config,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.vscode,target=/workspace/.vscode,type=bind,readonly"
+  ],
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  },
+  "remoteEnv": {
+    "SSH_AUTH_SOCK": "",
+    // A fine-grained token for this one repo, set on the host (see README). gh uses it directly.
+    "GH_TOKEN": "${localEnv:SANDBOX_GH_TOKEN}",
+    // Make git use only that token for github.com: the empty value clears every other credential
+    // helper, including the one VS Code forwards from your Mac
+    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_KEY_0": "credential.https://github.com.helper",
+    "GIT_CONFIG_VALUE_0": "",
+    "GIT_CONFIG_KEY_1": "credential.https://github.com.helper",
+    "GIT_CONFIG_VALUE_1": "!gh auth git-credential"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && if [ -f package.json ]; then npm install; fi",
+  "waitFor": "postStartCommand"
+}
