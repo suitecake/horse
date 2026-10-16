@@ -45,10 +45,9 @@ interface Clear {
   frames: number;
 }
 
-/** What the clear-check is about: tiles and signs, not the title. */
+/** What the clear-check is about: the tiles. Title, author and sign text can change freely. */
 function fingerprint(l: Level): string {
-  const signs = [...l.signs].filter(([i]) => l.tiles[i] === T.Sign).sort((a, b) => a[0] - b[0]);
-  return l.tiles.join("") + JSON.stringify(signs);
+  return l.tiles.join("");
 }
 
 async function saveDraft(level: Level, clear: Clear | null) {
@@ -178,7 +177,7 @@ export async function startEditor(root: HTMLElement) {
   }
 
   /**
-   * Whether the level is exactly the one you beat. Any change to tiles or signs
+   * Whether the level is exactly the one you beat. Any change to the tiles
    * locks sharing until you beat it again, even if your old run would still
    * win: otherwise you could keep making it harder in ways your run happens to
    * dodge. Undoing back to the cleared layout unlocks it again.
