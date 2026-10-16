@@ -1,5 +1,7 @@
 // Small DOM helpers.
 
+import { sfx } from "./sound";
+
 type Attrs = Record<string, string | number | boolean | ((e: Event) => void) | undefined>;
 type Child = Node | string | null | undefined | false;
 
@@ -42,6 +44,41 @@ export async function copyText(text: string, fallback?: HTMLInputElement | HTMLT
     }
     return false;
   }
+}
+
+/**
+ * Discord markdown link: chat shows `label`, the full URL stays underneath.
+ * The angle brackets stop Discord unfurling it into an embed.
+ * Other chat apps don't render this, so it's offered alongside the plain text.
+ */
+export function maskedLink(label: string, url: string): string {
+  return `[${label}](<${url}>)`;
+}
+
+/**
+ * "Copy message" and "Copy for Discord" buttons. `texts` returns the current
+ * [plain, discord] messages; whichever is copied is shown in `box`.
+ */
+export function copyButtons(box: HTMLTextAreaElement, texts: () => [string, string]): HTMLButtonElement[] {
+  const labels = ["Copy message", "Copy for Discord"];
+  const btns = labels.map((label, i) =>
+    h(
+      "button",
+      {
+        class: i === 0 ? "btn primary" : "btn",
+        onclick: async () => {
+          const text = texts()[i];
+          box.value = text;
+          if (await copyText(text, box)) {
+            btns.forEach((b, j) => (b.textContent = j === i ? "Copied ✓" : labels[j]));
+            sfx.click();
+          }
+        },
+      },
+      label,
+    ),
+  );
+  return btns;
 }
 
 /** A modal built on <dialog>. Returns the dialog so callers can close it. */

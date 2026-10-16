@@ -8,9 +8,8 @@ import { drawSimHorse } from "./render";
 import { Runner } from "./runner";
 import { decodeLevelLink, encodeGhostLink, linkFor, URL_BUDGET } from "./share";
 import { createSim, runReplay, step, type Sim } from "./sim";
-import { sfx } from "./sound";
 import { Stage, startLoop } from "./stage";
-import { copyText, esc, fmtTime, h, modal, savedName, saveName, strHash } from "./ui";
+import { copyButtons, esc, fmtTime, h, maskedLink, modal, savedName, saveName, strHash } from "./ui";
 
 /** Deaths before the creator's ghost becomes available to race. */
 const GHOST_HINT_AFTER = 10;
@@ -146,8 +145,9 @@ export async function startPlay(root: HTMLElement, data: string) {
     const input = h("input", { maxlength: NAME_MAX, value: savedName(), placeholder: "your name" });
     const box = h("textarea", { class: "link-box", readonly: true, rows: 4 });
     const note = h("p", { class: "dim small" });
-    const copyBtn = h("button", { class: "btn primary" }, "Copy message");
     let text = "";
+    let discordText = "";
+    const copyBtns = copyButtons(box, () => [text, discordText]);
     let latest = 0;
     const build = async () => {
       const seq = ++latest;
@@ -162,7 +162,9 @@ export async function startPlay(root: HTMLElement, data: string) {
         clears > 0
           ? `beat ${JSON.stringify(name)} on attempt ${won.indexOf(true) + 1}`
           : `gave up on ${JSON.stringify(name)}`;
-      text = `${player} ${verdict}. ${"✕".repeat(Math.min(deaths, 12))}${deaths > 12 ? `+${deaths - 12}` : ""} Watch every death: ${url}`;
+      const intro = `${player} ${verdict}. ${"✕".repeat(Math.min(deaths, 12))}${deaths > 12 ? `+${deaths - 12}` : ""}`.trimEnd();
+      text = `${intro} Watch every death: ${url}`;
+      discordText = `${intro} ${maskedLink("Watch every death", url)}`;
       box.value = text;
       note.textContent =
         kept < attempts.length
@@ -170,12 +172,6 @@ export async function startPlay(root: HTMLElement, data: string) {
           : `${attempts.length} attempt${attempts.length === 1 ? "" : "s"}, ${deaths} death${deaths === 1 ? "" : "s"}.`;
     };
     input.addEventListener("input", () => void build());
-    copyBtn.addEventListener("click", async () => {
-      if (await copyText(text, box)) {
-        copyBtn.textContent = "Copied ✓";
-        sfx.click();
-      }
-    });
     await build();
     modal(
       clears > 0 ? "Send your ghosts back" : "Admit defeat",
@@ -183,7 +179,7 @@ export async function startPlay(root: HTMLElement, data: string) {
       h("label", { class: "field" }, h("span", {}, "Who are you?"), input),
       box,
       note,
-      h("div", { class: "row" }, copyBtn),
+      h("div", { class: "row" }, ...copyBtns),
     );
   }
 

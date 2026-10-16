@@ -21,7 +21,7 @@ import { encodeLevelLink, linkFor, readLevel, URL_BUDGET, writeLevel } from "./s
 import { runReplay } from "./sim";
 import { sfx } from "./sound";
 import { Stage, startLoop } from "./stage";
-import { copyText, fmtTime, h, modal, savedName, saveName, toast } from "./ui";
+import { copyButtons, fmtTime, h, maskedLink, modal, savedName, saveName, toast } from "./ui";
 
 const TOOLS: { tile: T; name: string; key: string; tip: string }[] = [
   { tile: T.Solid, name: "Ground", key: "1", tip: "Solid. You can stand on it." },
@@ -403,21 +403,10 @@ export async function startEditor(root: HTMLElement) {
     const data = await encodeLevelLink({ level, clear: clear!.inputs });
     const url = linkFor("p", data);
     const name = level.title.trim();
-    const text = `I made ${name ? JSON.stringify(name) : "a level"} in HORSE. I beat it, so you can too. ${url}`;
+    const intro = `I made ${name ? JSON.stringify(name) : "a level"} in HORSE. I beat it, so you can too.`;
+    const text = `${intro} ${url}`;
     const box = h("textarea", { class: "link-box", readonly: true, rows: 4 }, text);
-    const copyBtn = h(
-      "button",
-      {
-        class: "btn primary",
-        onclick: async () => {
-          if (await copyText(text, box)) {
-            copyBtn.textContent = "Copied ✓";
-            sfx.click();
-          }
-        },
-      },
-      "Copy message",
-    );
+    const copyBtns = copyButtons(box, () => [text, `${intro} ${maskedLink("Play it", url)}`]);
     modal(
       "Send it to someone",
       h("p", {}, "Paste this in Discord, a group chat, wherever. When they're done they'll send their ghosts back."),
@@ -425,7 +414,7 @@ export async function startEditor(root: HTMLElement) {
       h(
         "div",
         { class: "row" },
-        copyBtn,
+        ...copyBtns,
         h("a", { class: "btn ghost", href: url, target: "_blank", rel: "noopener" }, "Open as a player"),
       ),
       h(
