@@ -45,10 +45,9 @@ interface Clear {
   frames: number;
 }
 
-/** What the clear-check is about: tiles and signs, not the title. */
+/** What the clear-check is about: the tiles. Title, author and sign text can change freely. */
 function fingerprint(l: Level): string {
-  const signs = [...l.signs].filter(([i]) => l.tiles[i] === T.Sign).sort((a, b) => a[0] - b[0]);
-  return l.tiles.join("") + JSON.stringify(signs);
+  return l.tiles.join("");
 }
 
 async function saveDraft(level: Level, clear: Clear | null) {
@@ -178,21 +177,13 @@ export async function startEditor(root: HTMLElement) {
   }
 
   /**
-   * Whether the stored winning run still beats the level as it is now. Edits
-   * that don't get in the way of that run (decoration, traps elsewhere) keep
-   * the level cleared; anything that breaks it locks sharing again.
+   * Whether the level is exactly the one you beat. Any change to the tiles
+   * locks sharing until you beat it again, even if your old run would still
+   * win: otherwise you could keep making it harder in ways your run happens to
+   * dodge. Undoing back to the cleared layout unlocks it again.
    */
-  let verified = { fp: "", inputs: null as Uint8Array | null, ok: false };
   function cleared(): boolean {
-    if (!clear) return false;
-    const fp = fingerprint(level);
-    if (fp === clear.fp) return true;
-    if (verified.fp !== fp || verified.inputs !== clear.inputs) {
-      const out = runReplay(level, clear.inputs);
-      verified = { fp, inputs: clear.inputs, ok: out.status === "won" };
-      if (verified.ok) clear = { ...clear, fp, frames: out.frames };
-    }
-    return verified.ok;
+    return !!clear && fingerprint(level) === clear.fp;
   }
 
   function pick(tl: T) {
@@ -219,7 +210,7 @@ export async function startEditor(root: HTMLElement) {
     status.innerHTML = ok
       ? `<span class="dot"></span> Cleared in ${fmtTime(clear!.frames)} · ready to send`
       : clear
-        ? `<span class="dot"></span> Your edits broke your winning run · beat it again`
+        ? `<span class="dot"></span> Changed since your clear · beat it again to share`
         : `<span class="dot"></span> Not cleared yet · beat it to share`;
     undoBtn.disabled = undo.length === 0;
   }
