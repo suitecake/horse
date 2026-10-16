@@ -37,10 +37,13 @@ export async function startPlay(root: HTMLElement, data: string) {
   // Attempts survive a refresh.
   const storeKey = `horse.attempts.${strHash(data)}`;
   const attempts: Uint8Array[] = loadAttempts(storeKey);
+  // won[i]: whether attempt i cleared the level. Worked out once, here and in onEnd.
+  const won: boolean[] = [];
   let deaths = 0;
   let clears = 0;
   for (const a of attempts) {
     const o = runReplay(level, a);
+    won.push(o.status === "won");
     if (o.status === "dead") deaths++;
     if (o.status === "won") clears++;
   }
@@ -84,6 +87,7 @@ export async function startPlay(root: HTMLElement, data: string) {
   const runner: Runner = new Runner(level, {
     onEnd(inputs, out) {
       attempts.push(inputs);
+      won.push(out.status === "won");
       saveAttempts(storeKey, attempts);
       if (out.status === "dead") {
         deaths++;
@@ -144,24 +148,25 @@ export async function startPlay(root: HTMLElement, data: string) {
     const note = h("p", { class: "dim small" });
     const copyBtn = h("button", { class: "btn primary" }, "Copy message");
     let text = "";
+    let latest = 0;
     const build = async () => {
+      const seq = ++latest;
       const player = input.value.trim() || "Someone";
       saveName(input.value.trim());
       const base = linkFor("g", "").length;
-      const { data: g, kept } = await encodeGhostLink(
-        { level, clear, player, attempts, total: attempts.length },
-        URL_BUDGET - base - 120,
-      );
+      const { data: g, kept } = await encodeGhostLink({ level, clear, player, attempts }, won, URL_BUDGET - base - 120);
+      // a later keystroke started its own build; let that one win
+      if (seq !== latest) return;
       const url = linkFor("g", g);
       const verdict =
         clears > 0
-          ? `beat ${JSON.stringify(name)} on attempt ${firstClear() + 1}`
+          ? `beat ${JSON.stringify(name)} on attempt ${won.indexOf(true) + 1}`
           : `gave up on ${JSON.stringify(name)}`;
       text = `${player} ${verdict}. ${"✕".repeat(Math.min(deaths, 12))}${deaths > 12 ? `+${deaths - 12}` : ""} Watch every death: ${url}`;
       box.value = text;
       note.textContent =
         kept < attempts.length
-          ? `Your ${attempts.length} attempts don't all fit in one message, so this sends the ${kept} most recent (plus any clears).`
+          ? `Your ${attempts.length} attempts don't all fit in one message, so this sends ${kept}: your clears first, then the most recent.`
           : `${attempts.length} attempt${attempts.length === 1 ? "" : "s"}, ${deaths} death${deaths === 1 ? "" : "s"}.`;
     };
     input.addEventListener("input", () => void build());
@@ -180,10 +185,6 @@ export async function startPlay(root: HTMLElement, data: string) {
       note,
       h("div", { class: "row" }, copyBtn),
     );
-  }
-
-  function firstClear(): number {
-    return attempts.findIndex((a) => runReplay(level, a).status === "won");
   }
 
   window.addEventListener("keydown", (e) => {

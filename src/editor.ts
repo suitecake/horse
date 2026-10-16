@@ -36,6 +36,8 @@ const TOOLS: { tile: T; name: string; key: string; tip: string }[] = [
 ];
 
 const DRAFT_KEY = "horse.draft";
+/** Bump when writeLevel or writeReplay change, and migrate older drafts in loadDraft. */
+const DRAFT_VERSION = 1;
 
 interface Clear {
   fp: string;
@@ -51,6 +53,7 @@ function fingerprint(l: Level): string {
 
 async function saveDraft(level: Level, clear: Clear | null) {
   const w = new Writer();
+  w.u8(DRAFT_VERSION);
   writeLevel(w, level);
   w.u8(clear ? 1 : 0);
   if (clear) writeReplay(w, clear.inputs);
@@ -62,6 +65,8 @@ async function loadDraft(): Promise<{ level: Level; clear: Clear | null } | null
   if (!s) return null;
   try {
     const r = new Reader(await unpack(s));
+    const v = r.u8();
+    if (v !== DRAFT_VERSION) throw new Error(`unknown draft version ${v}`);
     const level = readLevel(r);
     let clear: Clear | null = null;
     if (r.u8() === 1) {
@@ -71,6 +76,12 @@ async function loadDraft(): Promise<{ level: Level; clear: Clear | null } | null
     }
     return { level, clear };
   } catch {
+    // Keep the unreadable draft around rather than letting the next save overwrite it.
+    try {
+      localStorage.setItem(`${DRAFT_KEY}.unreadable`, s);
+    } catch {
+      // storage full; nothing more to do
+    }
     return null;
   }
 }
@@ -84,7 +95,8 @@ export async function startEditor(root: HTMLElement) {
   let mode: "edit" | "test" = "edit";
   let hover: { c: number; r: number } | null = null;
   let painting: { erase: boolean } | null = null;
-  let strokeChanged = false;
+  /** The level as it was when the current stroke began, until the stroke changes something. */
+  let strokeStart: Level | null = null;
   const undo: Level[] = [];
   const redo: Level[] = [];
   let runner: Runner | null = null;
@@ -170,14 +182,14 @@ export async function startEditor(root: HTMLElement) {
    * that don't get in the way of that run (decoration, traps elsewhere) keep
    * the level cleared; anything that breaks it locks sharing again.
    */
-  let verified = { fp: "", ok: false };
+  let verified = { fp: "", inputs: null as Uint8Array | null, ok: false };
   function cleared(): boolean {
     if (!clear) return false;
     const fp = fingerprint(level);
     if (fp === clear.fp) return true;
-    if (verified.fp !== fp) {
+    if (verified.fp !== fp || verified.inputs !== clear.inputs) {
       const out = runReplay(level, clear.inputs);
-      verified = { fp, ok: out.status === "won" };
+      verified = { fp, inputs: clear.inputs, ok: out.status === "won" };
       if (verified.ok) clear = { ...clear, fp, frames: out.frames };
     }
     return verified.ok;
@@ -212,8 +224,8 @@ export async function startEditor(root: HTMLElement) {
     undoBtn.disabled = undo.length === 0;
   }
 
-  function snapshot() {
-    undo.push(cloneLevel(level));
+  function snapshot(prev: Level = cloneLevel(level)) {
+    undo.push(prev);
     if (undo.length > 100) undo.shift();
     redo.length = 0;
   }
@@ -263,10 +275,14 @@ export async function startEditor(root: HTMLElement) {
 
   function paintAt(c: number, r: number) {
     const tile = painting!.erase ? T.Empty : tool;
-    if (setTile(c, r, tile)) strokeChanged = true;
+    if (setTile(c, r, tile) && strokeStart) {
+      snapshot(strokeStart);
+      strokeStart = null;
+    }
   }
 
-  function editSign(i: number) {
+  /** `undoable`: false when the sign was just placed, so placing and writing it undo together. */
+  function editSign(i: number, undoable = true) {
     const input = h("input", {
       class: "sign-input",
       maxlength: SIGN_MAX,
@@ -275,6 +291,7 @@ export async function startEditor(root: HTMLElement) {
     });
     const save = () => {
       const v = input.value.trim();
+      if (undoable && v !== (level.signs.get(i) ?? "")) snapshot();
       if (v) level.signs.set(i, v);
       else level.signs.delete(i);
       persist();
@@ -308,14 +325,13 @@ export async function startEditor(root: HTMLElement) {
       editSign(i);
       return;
     }
-    snapshot();
-    strokeChanged = false;
+    strokeStart = cloneLevel(level);
     painting = { erase };
     paintAt(at.c, at.r);
     if (!erase && tool === T.Sign) {
       painting = null;
       finishStroke();
-      editSign(i);
+      editSign(i, false);
     }
   });
   canvas.addEventListener("mousemove", (e) => {
@@ -335,11 +351,12 @@ export async function startEditor(root: HTMLElement) {
   });
 
   function finishStroke() {
-    if (!strokeChanged) undo.pop();
-    else {
+    // strokeStart is cleared on the first change, so it's only still set if nothing changed
+    if (!strokeStart) {
       sfx.click();
       persist();
     }
+    strokeStart = null;
     refresh();
   }
 

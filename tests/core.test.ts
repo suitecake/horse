@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { COLS, idx, ROWS, starterLevel, T, emptyLevel } from "../src/level";
-import { IN_JUMP, IN_RIGHT } from "../src/replay";
 import { createSim, runReplay, step } from "../src/sim";
-import { decodeGhostLink, decodeLevelLink, encodeGhostLink, encodeLevelLink } from "../src/share";
+import { IN_JUMP, IN_LEFT, IN_RIGHT, MAX_FRAMES, writeReplay } from "../src/replay";
+import { deflate, inflate, pack, Writer } from "../src/codec";
+import {
+  decodeGhostLink,
+  decodeLevelLink,
+  encodeGhostLink,
+  encodeLevelLink,
+  MAX_GHOST_FRAMES,
+  writeLevel,
+} from "../src/share";
 
 function flat(): ReturnType<typeof emptyLevel> {
   const l = emptyLevel();
@@ -123,13 +131,102 @@ describe("share links", () => {
     const win = tries.find((t) => runReplay(level, t).status === "won")!;
     expect(win).toBeDefined();
     attempts.splice(3, 0, win);
-    const g = { level, clear: win, player: "pal", attempts, total: attempts.length };
-    const { data, kept } = await encodeGhostLink(g, 1500);
+    const won = attempts.map((a) => runReplay(level, a).status === "won");
+    const g = { level, clear: win, player: "pal", attempts };
+    const { data, kept } = await encodeGhostLink(g, won, 1500);
     expect(data.length).toBeLessThanOrEqual(1500);
     expect(kept).toBeLessThan(attempts.length);
     const back = await decodeGhostLink(data);
     expect(back.total).toBe(201);
+    expect(back.firstClear).toBe(won.indexOf(true) + 1);
+    expect(back.clears).toBe(won.filter(Boolean).length);
+    expect(back.attempts.length).toBe(kept);
     expect(back.attempts.some((a) => a.length === win.length && a.every((x, i) => x === win[i]))).toBe(true);
     expect(back.attempts.at(-1)).toEqual(attempts.at(-1));
+  });
+
+  it("keeps the real attempt number of the first clear when trimming", async () => {
+    const level = flat();
+    level.tiles[idx(12, ROWS - 2)] = T.Goal;
+    const win = Uint8Array.from(hold(IN_RIGHT, 200));
+    expect(runReplay(level, win).status).toBe("won");
+    let seed = 3;
+    const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff);
+    // left-ish noise never reaches the goal
+    const junk = () => Uint8Array.from({ length: 300 }, () => ((rand() >> 16) % 8) & ~IN_RIGHT);
+    const attempts = [...Array.from({ length: 40 }, junk), win, ...Array.from({ length: 100 }, junk)];
+    const won = attempts.map((a) => runReplay(level, a).status === "won");
+    const { data } = await encodeGhostLink({ level, clear: win, player: "pal", attempts }, won, 1200);
+    const back = await decodeGhostLink(data);
+    expect(back.attempts.length).toBeLessThan(attempts.length);
+    expect(back.firstClear).toBe(41);
+    expect(back.clears).toBe(1);
+  });
+
+  it("drops clears too when the clears alone don't fit", async () => {
+    const level = flat();
+    level.tiles[idx(30, ROWS - 2)] = T.Goal;
+    let seed = 11;
+    const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff);
+    // long, noisy, all-winning runs: hold right, sprinkle in jumps and lefts
+    const attempts = Array.from({ length: 80 }, () =>
+      Uint8Array.from({ length: 600 }, () => IN_RIGHT | ((rand() >> 16) % 3 === 0 ? IN_JUMP : 0)),
+    );
+    const won = attempts.map((a) => runReplay(level, a).status === "won");
+    expect(won.filter(Boolean).length).toBeGreaterThan(20);
+    const { data, kept } = await encodeGhostLink({ level, clear: attempts[0], player: "pal", attempts }, won, 1000);
+    expect(data.length).toBeLessThanOrEqual(1000);
+    expect(kept).toBeGreaterThan(0);
+    const back = await decodeGhostLink(data);
+    expect(back.attempts.length).toBe(kept);
+    expect(back.clears).toBe(won.filter(Boolean).length);
+    // the first clear is the first thing kept
+    const first = attempts[won.indexOf(true)];
+    expect(back.attempts.some((a) => a.length === first.length && a.every((x, i) => x === first[i]))).toBe(true);
+  });
+
+  it("refuses ghost links with too many frames", async () => {
+    const w = new Writer();
+    w.u8(2);
+    writeLevel(w, flat());
+    writeReplay(w, Uint8Array.from(hold(IN_LEFT, 10)));
+    w.str("evil");
+    w.varint(5000);
+    w.varint(0);
+    w.varint(0);
+    w.varint(5000);
+    for (let k = 0; k < 5000; k++) {
+      w.varint(1);
+      w.varint(MAX_FRAMES * 8);
+    }
+    expect(5000 * MAX_FRAMES).toBeGreaterThan(MAX_GHOST_FRAMES);
+    const data = await pack(w.finish());
+    expect(data.length).toBeLessThan(2000);
+    await expect(decodeGhostLink(data)).rejects.toThrow("too many frames");
+  });
+
+  it("still reads v1 ghost links", async () => {
+    const level = flat();
+    level.tiles[idx(12, ROWS - 2)] = T.Goal;
+    const win = Uint8Array.from(hold(IN_RIGHT, 200));
+    const lose = Uint8Array.from(hold(IN_LEFT, 50));
+    const w = new Writer();
+    w.u8(1);
+    writeLevel(w, level);
+    writeReplay(w, win);
+    w.str("pal");
+    w.varint(3);
+    w.varint(3);
+    for (const a of [lose, win, win]) writeReplay(w, a);
+    const back = await decodeGhostLink(await pack(w.finish()));
+    expect(back.firstClear).toBe(2);
+    expect(back.clears).toBe(2);
+    expect(back.total).toBe(3);
+  });
+
+  it("caps how far data inflates", async () => {
+    const big = await deflate(new Uint8Array(4 << 20));
+    await expect(inflate(big)).rejects.toThrow("too large");
+    expect((await inflate(await deflate(new Uint8Array(1000)))).length).toBe(1000);
   });
 });

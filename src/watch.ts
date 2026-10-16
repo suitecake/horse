@@ -45,7 +45,10 @@ export async function startWatch(root: HTMLElement, data: string) {
   // Work out the whole story up front.
   const outcomes = attempts.map((a) => runReplay(level, a));
   const deaths = outcomes.filter((o) => o.status === "dead").length;
-  const firstWin = outcomes.findIndex((o) => o.status === "won");
+  const beat = g.firstClear > 0;
+  // fastest clear that made it into the link, if any did
+  const winFrames = outcomes.filter((o) => o.status === "won").map((o) => o.frames);
+  const bestWin = winFrames.length ? Math.min(...winFrames) : -1;
   const causes = new Map<string, number>();
   for (const o of outcomes) {
     if (o.status === "won") continue;
@@ -56,8 +59,8 @@ export async function startWatch(root: HTMLElement, data: string) {
   const longest = Math.max(1, ...attempts.map((a) => a.length));
 
   const headlineText =
-    firstWin >= 0
-      ? `${who} beat ${name} on attempt ${firstWin + 1}.`
+    beat
+      ? `${who} beat ${name} on attempt ${g.firstClear}.`
       : `${who} gave up on ${name} after ${g.total} attempt${g.total === 1 ? "" : "s"}.`;
   const deathCount = h("b", {}, "0");
   const stageWrap = h("div", { class: "stage-wrap" });
@@ -169,7 +172,10 @@ export async function startWatch(root: HTMLElement, data: string) {
     const lines = ranked.map(
       ([k, n]) => `<li><b>${n}×</b> ${CAUSE_TEXT[k as keyof typeof CAUSE_TEXT] ?? k}</li>`,
     );
-    if (firstWin >= 0) lines.push(`<li class="win"><b>1×</b> cleared it, in ${fmtTime(outcomes[firstWin].frames)}</li>`);
+    if (beat) {
+      const time = bestWin < 0 ? "" : `${g.clears > 1 ? ", fastest" : ","} in ${fmtTime(bestWin)}`;
+      lines.push(`<li class="win"><b>${g.clears}×</b> cleared it${time}</li>`);
+    }
     const top = ranked[0];
     const verdict =
       top && top[0] === "fake" && top[1] >= 3
@@ -186,8 +192,8 @@ export async function startWatch(root: HTMLElement, data: string) {
       ${verdict ? `<p class="verdict">${verdict}</p>` : ""}`;
     summary.hidden = false;
     stage.banner(
-      `<div class="big"><span class="num">${deaths}</span> ✕</div><div>${firstWin >= 0 ? "and then they beat it" : "and they never beat it"}</div>`,
-      firstWin >= 0 ? "win" : "lose",
+      `<div class="big"><span class="num">${deaths}</span> ✕</div><div>${beat ? "and then they beat it" : "and they never beat it"}</div>`,
+      beat ? "win" : "lose",
     );
   }
 

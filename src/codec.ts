@@ -59,13 +59,38 @@ export class Reader {
   }
 }
 
-async function pipe(data: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
+async function pipe(data: Uint8Array, stream: CompressionStream): Promise<Uint8Array> {
   const out = new Blob([data as BlobPart]).stream().pipeThrough(stream);
   return new Uint8Array(await new Response(out).arrayBuffer());
 }
 
+/** Nothing we encode comes close; this stops a crafted link from inflating into gigabytes. */
+export const MAX_INFLATED = 1 << 20;
+
 export const deflate = (d: Uint8Array) => pipe(d, new CompressionStream("deflate-raw"));
-export const inflate = (d: Uint8Array) => pipe(d, new DecompressionStream("deflate-raw"));
+
+export async function inflate(d: Uint8Array, max = MAX_INFLATED): Promise<Uint8Array> {
+  const reader = new Blob([d as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) {
+      await reader.cancel();
+      throw new Error("data too large");
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let pos = 0;
+  for (const c of chunks) {
+    out.set(c, pos);
+    pos += c.length;
+  }
+  return out;
+}
 
 export function toBase64Url(b: Uint8Array): string {
   let s = "";
