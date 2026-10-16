@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>HORSE sprite sheet</title>
+    <style>
+      body { background: #140f1c; color: #fbecc8; font: 12px monospace; padding: 20px; }
+      .grid { display: flex; flex-wrap: wrap; gap: 20px; }
+      figure { margin: 0; text-align: center; }
+      canvas { width: 128px; height: 128px; image-rendering: pixelated; background: #4a2d5a; display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>Sprite sheet (dev only)</h1>
+    <div class="grid" id="grid"></div>
+    <script type="module">
+      import { HORSE_ART, TILE_ART, sprite, silhouette, PAL } from "/src/sprites.ts";
+      const grid = document.getElementById("grid");
+      const add = (name, img) => {
+        const c = document.createElement("canvas");
+        c.width = 16; c.height = 16;
+        c.getContext("2d").drawImage(img, 0, 0);
+        const f = document.createElement("figure");
+        f.append(c, name);
+        grid.append(f);
+      };
+      for (const [k, v] of Object.entries(HORSE_ART)) add(`horse.${k}`, sprite(v));
+      add("ghost", silhouette(sprite(HORSE_ART.stand), PAL.ghost));
+      for (const [k, v] of Object.entries(TILE_ART)) add(k, sprite(v));
+    </script>
+  </body>
+</html>
