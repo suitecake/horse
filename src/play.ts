@@ -160,8 +160,8 @@ export async function startPlay(root: HTMLElement, data: string) {
       const url = linkFor("g", g);
       const verdict =
         clears > 0
-          ? `beat ${JSON.stringify(name)} on attempt ${won.indexOf(true) + 1}`
-          : `gave up on ${JSON.stringify(name)}`;
+          ? `beat ${JSON.stringify(name)} in HORSE on attempt ${won.indexOf(true) + 1}`
+          : `gave up on ${JSON.stringify(name)} in HORSE`;
       const intro = `${player} ${verdict}. ${"✕".repeat(Math.min(deaths, 12))}${deaths > 12 ? `+${deaths - 12}` : ""}`.trimEnd();
       text = `${intro} Watch every death: ${url}`;
       discordText = `${intro} ${maskedLink("Watch every death", url)}`;

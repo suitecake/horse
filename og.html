@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>HORSE link preview card</title>
+    <!--
+      Dev only. The 1200x630 image Discord and friends show under a link.
+      Regenerate public/og.png by screenshotting #card at exactly 1200x630.
+    -->
+    <style>
+      :root {
+        --ink: #1b1424;
+        --bg: #140f1c;
+        --plum: #4a2d5a;
+        --rose: #ff5d73;
+        --apricot: #f2a65a;
+        --butter: #ffd56b;
+        --cream: #fbecc8;
+        --dim: #a693b8;
+        --grass: #9fd05a;
+        --x: #ff4d6d;
+      }
+      body { margin: 0; background: #000; }
+      #card {
+        width: 1200px;
+        height: 630px;
+        box-sizing: border-box;
+        background: var(--bg);
+        display: flex;
+        align-items: center;
+        gap: 48px;
+        padding: 0 0 0 60px;
+        overflow: hidden;
+        font-family: "Silkscreen", monospace;
+        color: var(--cream);
+      }
+      .copy { flex: none; width: 340px; }
+      .wordmark { display: flex; gap: 7px; }
+      .wordmark span {
+        font: 700 40px/1 "Silkscreen", monospace;
+        width: 56px;
+        height: 60px;
+        display: grid;
+        place-items: center;
+        color: var(--ink);
+        background: var(--butter);
+        border: 4px solid var(--ink);
+        box-shadow: 5px 5px 0 var(--ink), 0 0 0 3px var(--plum);
+        box-sizing: border-box;
+      }
+      .wordmark span:nth-child(2) { background: var(--apricot); transform: translateY(5px); }
+      .wordmark span:nth-child(3) { background: var(--rose); }
+      .wordmark span:nth-child(4) { background: #c27bd6; transform: translateY(5px); }
+      .wordmark span:nth-child(5) { background: var(--grass); }
+      .steps { margin: 44px 0 0; padding: 0; list-style: none; font-size: 30px; line-height: 1.25; }
+      .steps li:nth-child(3) { color: var(--butter); }
+      .pitch { margin: 28px 0 0; font: 20px/1.45 "Space Mono", monospace; color: var(--dim); }
+      .pitch b { color: var(--x); font-weight: 700; }
+      .stage {
+        flex: none;
+        border: 6px solid var(--ink);
+        box-shadow: 0 0 0 4px var(--plum), 12px 12px 0 4px var(--ink);
+        background: var(--ink);
+        line-height: 0;
+      }
+      canvas { image-rendering: pixelated; }
+    </style>
+  </head>
+  <body>
+    <div id="card">
+      <div class="copy">
+        <div class="wordmark"><span>H</span><span>O</span><span>R</span><span>S</span><span>E</span></div>
+        <ul class="steps"><li>build it.</li><li>beat it.</li><li>send it.</li></ul>
+        <p class="pitch">A tiny platformer. Make a level, send the link, and watch <b>every one</b> of your friend's deaths.</p>
+      </div>
+      <div class="stage"><canvas id="screen"></canvas></div>
+    </div>
+    <script type="module">
+      import "@fontsource/silkscreen/700.css";
+      import "@fontsource/silkscreen/400.css";
+      import "@fontsource/space-mono/400.css";
+      import "@fontsource/space-mono/700.css";
+      import { starterLevel, WIDTH, HEIGHT, TILE, T, idx, ROWS } from "/src/level.ts";
+      import { drawScene, drawHorse, drawDeathMark } from "/src/render.ts";
+
+      // The starter level cropped to its last stretch: the end of the crumbling
+      // bridge, the spring, and the platform with a fake tile, plus spikes below
+      // so the deaths land somewhere. 3x so the horses
+      // still read when Discord shrinks the card.
+      const level = starterLevel();
+      for (let c = 24; c < 31; c++) level.tiles[idx(c, ROWS - 3)] = T.Spike;
+      const crop = { c: 17, r: 7, cols: 15, rows: 11 };
+      const scale = 3;
+
+      const scene = document.createElement("canvas");
+      scene.width = WIDTH;
+      scene.height = HEIGHT;
+      const ctx = scene.getContext("2d");
+      drawScene(ctx, level, { t: 0 });
+
+      // Where it all went wrong: the pit, the spikes under the fake tile.
+      // Each X is someone's attempt.
+      for (const [x, y] of [[280, 278], [398, 246], [420, 250], [430, 242], [462, 248]])
+        drawDeathMark(ctx, x, y, 99);
+
+      // Ghosts streaming off the spring, with the player out in front.
+      ctx.globalAlpha = 0.7;
+      for (const [x, y, f] of [[332, 214, 1], [342, 122, 1], [372, 116, 1], [421, 192, 1]])
+        drawHorse(ctx, x, y, f, "jump", "ghost");
+      ctx.globalAlpha = 1;
+      drawHorse(ctx, 402, 124, 1, "jump", "player");
+
+      const out = document.getElementById("screen");
+      out.width = crop.cols * TILE * scale;
+      out.height = crop.rows * TILE * scale;
+      const o = out.getContext("2d");
+      o.imageSmoothingEnabled = false;
+      o.drawImage(scene, crop.c * TILE, crop.r * TILE, crop.cols * TILE, crop.rows * TILE, 0, 0, out.width, out.height);
+
+      await document.fonts.ready;
+      document.body.dataset.ready = "1";
+    </script>
+  </body>
+</html>
