@@ -2,13 +2,17 @@
 
 ## Project
 
-TODO: what this app does, and its stack.
+HORSE: a browser platformer with a level editor. Build a level, beat it to unlock sharing, send the link, get your friend's attempts back as ghosts. No backend; levels and replays live in the URL hash. TypeScript + Vite + HTML canvas, no game engine or UI framework. See README.md for the design.
+
+- `src/sim.ts` must stay deterministic: integer math only, no floats, `Math.random`, or time. Replays depend on it.
+- Changing physics constants or the binary formats in `share.ts`/`replay.ts` breaks existing links. Bump the version byte if you change a format.
+- `tests/core.test.ts` has a known winning run for the starter level; if physics changes break it, retune or re-solve rather than deleting it.
 
 ## Commands
 
-- Dev server: TODO
-- Tests: TODO
-- Lint and format: TODO
+- Dev server: `npm run dev` (port 5173). `/sprites.html` shows the sprite sheet.
+- Tests: `npm test` (vitest)
+- Typecheck and build: `npm run build`
 
 ## Sandbox
 
