@@ -48,11 +48,12 @@ export async function copyText(text: string, fallback?: HTMLInputElement | HTMLT
 
 /**
  * Discord markdown link: chat shows `label`, the full URL stays underneath.
- * The angle brackets stop Discord unfurling it into an embed.
+ * Discord still unfurls it into the og: card from index.html, which is what
+ * tells a friend what HORSE is, so don't wrap the URL in <> to suppress it.
  * Other chat apps don't render this, so it's offered alongside the plain text.
  */
 export function maskedLink(label: string, url: string): string {
-  return `[${label}](<${url}>)`;
+  return `[${label}](${url})`;
 }
 
 /**
