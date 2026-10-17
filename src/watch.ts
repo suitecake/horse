@@ -212,7 +212,7 @@ export async function startWatch(root: HTMLElement, data: string) {
     },
     () => {
       const ctx = stage.ctx;
-      drawScene(ctx, level, { t, sim: null });
+      drawScene(ctx, level, { t, sim: null, frame });
       for (const m of marks) drawDeathMark(ctx, m.x, m.y, frame - m.at);
       ctx.globalAlpha = 0.7;
       for (const gh of ghosts) if (!gh.ended) drawSimHorse(ctx, gh.sim, "ghost");

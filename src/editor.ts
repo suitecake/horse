@@ -7,6 +7,8 @@ import {
   cloneLevel,
   COLS,
   idx,
+  hasPlanks,
+  isMover,
   NAME_MAX,
   SIGN_MAX,
   starterLevel,
@@ -29,6 +31,24 @@ const TOOLS: { tile: T; name: string; key: string; tip: string }[] = [
   { tile: T.Spring, name: "Spring", key: "3", tip: "Launches you about seven tiles up." },
   { tile: T.Crumble, name: "Crumble", key: "4", tip: "Falls away shortly after you step on it." },
   { tile: T.Fake, name: "Fake", key: "5", tip: "Looks exactly like ground. Isn't. Only you can see the marks." },
+  {
+    tile: T.Platform,
+    name: "Platform",
+    key: "p",
+    tip: "Slides side to side, turning back at anything in its way. Paint a row for a wider one. Click one to flip which way it starts.",
+  },
+  {
+    tile: T.Lift,
+    name: "Lift",
+    key: "l",
+    tip: "Rides up and down, turning back at anything in its way, a tile short of the ceiling. Click one to flip which way it starts.",
+  },
+  {
+    tile: T.Bridge,
+    name: "Bridge",
+    key: "b",
+    tip: "A thin plank that stays put. Jump up through it, stand on it, hold Down to drop through. So can any platform or lift.",
+  },
   { tile: T.Sign, name: "Sign", key: "6", tip: "Says whatever you want. Lie if you like." },
   { tile: T.Start, name: "Start", key: "7", tip: "Where the horse begins. Only one." },
   { tile: T.Goal, name: "Goal", key: "8", tip: "Touch it to win." },
@@ -37,7 +57,7 @@ const TOOLS: { tile: T; name: string; key: string; tip: string }[] = [
 
 const DRAFT_KEY = "horse.draft";
 /** Bump when writeLevel or writeReplay change, and migrate older drafts in loadDraft. */
-const DRAFT_VERSION = 1;
+const DRAFT_VERSION = 2;
 
 interface Clear {
   fp: string;
@@ -45,9 +65,10 @@ interface Clear {
   frames: number;
 }
 
-/** What the clear-check is about: the tiles. Title, author and sign text can change freely. */
+/** What the clear-check is about: the tiles and which way platforms start. Title, author and sign text can change freely. */
 function fingerprint(l: Level): string {
-  return l.tiles.join("");
+  const flips = [...l.flips].filter((i) => isMover(l.tiles[i])).sort((a, b) => a - b);
+  return `${l.tiles.join("")}/${flips.join(",")}`;
 }
 
 async function saveDraft(level: Level, clear: Clear | null) {
@@ -65,11 +86,12 @@ async function loadDraft(): Promise<{ level: Level; clear: Clear | null } | null
   try {
     const r = new Reader(await unpack(s));
     const v = r.u8();
-    if (v !== DRAFT_VERSION) throw new Error(`unknown draft version ${v}`);
-    const level = readLevel(r);
+    // draft v1 predates platform directions and the Down button
+    if (v !== 1 && v !== DRAFT_VERSION) throw new Error(`unknown draft version ${v}`);
+    const level = readLevel(r, v === 1 ? 1 : 2);
     let clear: Clear | null = null;
     if (r.u8() === 1) {
-      const inputs = readReplay(r);
+      const inputs = readReplay(r, v === 1 ? 1 : 2);
       const out = runReplay(level, inputs);
       if (out.status === "won") clear = { fp: fingerprint(level), inputs, frames: out.frames };
     }
@@ -124,10 +146,10 @@ export async function startEditor(root: HTMLElement) {
   const toolButtons = TOOLS.map((tl) => {
     const b = h(
       "button",
-      { class: "tool", title: `${tl.name} (${tl.key}): ${tl.tip}`, "data-tile": tl.tile, onclick: () => pick(tl.tile) },
+      { class: "tool", title: `${tl.name} (${tl.key.toUpperCase()}): ${tl.tip}`, "data-tile": tl.tile, onclick: () => pick(tl.tile) },
       tl.tile === T.Empty ? h("span", { class: "erase-icon" }, "✕") : h("img", { src: tileIcon(tl.tile), alt: "" }),
       h("span", { class: "tool-name" }, tl.name),
-      h("kbd", {}, tl.key),
+      h("kbd", {}, tl.key.toUpperCase()),
     );
     palette.append(b);
     return b;
@@ -198,7 +220,8 @@ export async function startEditor(root: HTMLElement) {
     const ok = cleared();
     if (mode === "test") {
       testBtn.innerHTML = `■ Stop <kbd>Enter</kbd>`;
-      tip.innerHTML = `Arrows/WASD to run, Space/Z/↑ to jump, <kbd>R</kbd> to restart, <kbd>Esc</kbd> to stop.`;
+      const drop = hasPlanks(level) ? ", ↓ to drop through planks" : "";
+      tip.innerHTML = `Arrows/WASD to run, Space/Z/↑ to jump${drop}, <kbd>R</kbd> to restart, <kbd>Esc</kbd> to stop.`;
     } else {
       testBtn.innerHTML = `▶ Test <kbd>Enter</kbd>`;
       tip.innerHTML = `<b>${tl.name}</b> — ${tl.tip} <span class="dim">Click and drag to paint, right-click to erase.</span>`;
@@ -244,6 +267,7 @@ export async function startEditor(root: HTMLElement) {
     snapshot();
     level.tiles.fill(T.Empty);
     level.signs.clear();
+    level.flips.clear();
     // keep just the floor, a start and a goal so it's immediately testable
     for (let c = 0; c < COLS; c++) level.tiles[idx(c, 17)] = T.Solid;
     level.tiles[idx(2, 16)] = T.Start;
@@ -260,8 +284,29 @@ export async function startEditor(root: HTMLElement) {
       if (old >= 0) level.tiles[old] = T.Empty;
     }
     if (level.tiles[i] === T.Sign) level.signs.delete(i);
+    level.flips.delete(i);
     level.tiles[i] = tile;
     return true;
+  }
+
+  /** Reverse which way the plank through tile i starts off. A plank is a run of the same tile in a row. */
+  function flipPlank(i: number) {
+    const kind = level.tiles[i];
+    const row = i - (i % COLS);
+    let a = i;
+    while (a > row && level.tiles[a - 1] === kind) a--;
+    let b = i;
+    while (b + 1 < row + COLS && level.tiles[b + 1] === kind) b++;
+    let flipped = false;
+    for (let k = a; k <= b; k++) if (level.flips.has(k)) flipped = true;
+    snapshot();
+    for (let k = a; k <= b; k++) {
+      if (flipped) level.flips.delete(k);
+      else level.flips.add(k);
+    }
+    sfx.click();
+    persist();
+    refresh();
   }
 
   function paintAt(c: number, r: number) {
@@ -314,6 +359,11 @@ export async function startEditor(root: HTMLElement) {
     // clicking an existing sign with the sign tool edits it
     if (!erase && tool === T.Sign && level.tiles[i] === T.Sign) {
       editSign(i);
+      return;
+    }
+    // and clicking a platform with its own tool flips which way it starts
+    if (!erase && isMover(tool) && level.tiles[i] === tool) {
+      flipPlank(i);
       return;
     }
     strokeStart = cloneLevel(level);
@@ -452,7 +502,7 @@ export async function startEditor(root: HTMLElement) {
       doRedo();
       return;
     }
-    const tl = TOOLS.find((x) => x.key === e.key) ?? (e.key === "e" ? TOOLS[TOOLS.length - 1] : undefined);
+    const tl = TOOLS.find((x) => x.key === e.key.toLowerCase()) ?? (e.key === "e" ? TOOLS[TOOLS.length - 1] : undefined);
     if (tl) pick(tl.tile);
   });
 

@@ -2,7 +2,7 @@
 // scaled up by a whole number so pixels stay square.
 
 import { COLS, HEIGHT, ROWS, T, TILE, WIDTH, type Level } from "./level";
-import { CRUMBLE_DELAY, PH, PW, crumbleFallen, type Sim } from "./sim";
+import { CRUMBLE_DELAY, PH, PLANK_H, PW, crumbleFallen, platformsOf, platPos, startDir, type Sim } from "./sim";
 import { flipped, HORSE_ART, PAL, silhouette, sprite, TILE_ART } from "./sprites";
 
 type Img = HTMLCanvasElement;
@@ -192,12 +192,17 @@ export interface DrawOpts {
   hover?: { c: number; r: number; tile: number } | null;
   /** Spring tiles currently squashed. */
   squash?: Set<number>;
+  /** Where moving platforms are. Defaults to the sim's frame, or where they were placed. */
+  frame?: number;
 }
 
 export function drawScene(ctx: CanvasRenderingContext2D, level: Level, o: DrawOpts) {
   const a = loadArt();
   ctx.drawImage(a.bg, 0, 0);
   if (o.editor) drawGrid(ctx);
+  const plats = platformsOf(level);
+  for (const pl of plats)
+    if (pl.kind !== T.Bridge) drawTrack(ctx, pl.kind, pl.x >> 8, pl.y >> 8, pl.w >> 8, pl.lo >> 8, pl.hi >> 8, !!o.editor);
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const i = r * COLS + c;
@@ -234,7 +239,77 @@ export function drawScene(ctx: CanvasRenderingContext2D, level: Level, o: DrawOp
       }
     }
   }
+  const frame = o.frame ?? o.sim?.frame ?? 0;
+  for (const pl of plats) {
+    const at = platPos(pl, frame);
+    drawPlank(ctx, pl.kind, at.x >> 8, at.y >> 8, pl.w >> 8);
+    if (o.editor && pl.kind !== T.Bridge) drawStartArrow(ctx, pl.kind, at.x >> 8, at.y >> 8, pl.w >> 8, startDir(pl));
+  }
   if (o.hover) drawHover(ctx, o.hover, o.t);
+}
+
+/** A dotted line along where a platform travels. Faint in play, clearer in the editor. */
+function drawTrack(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, w: number, lo: number, hi: number, editor: boolean) {
+  ctx.fillStyle = PAL.cream;
+  ctx.globalAlpha = editor ? 0.4 : 0.16;
+  if (kind === T.Platform) {
+    const ty = y + (PLANK_H >> 1);
+    for (let px = lo + 1; px < hi + w - 1; px += 3) ctx.fillRect(px, ty, 1, 1);
+    ctx.fillRect(lo, ty - 1, 1, 3);
+    ctx.fillRect(hi + w - 1, ty - 1, 1, 3);
+  } else {
+    const tx = x + (w >> 1);
+    for (let py = lo + 1; py < hi + PLANK_H - 1; py += 3) ctx.fillRect(tx, py, 1, 1);
+    ctx.fillRect(tx - 1, lo, 3, 1);
+    ctx.fillRect(tx - 1, hi + PLANK_H - 1, 3, 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Little arrows stamped on each tile of a plank: ◂▸ for platforms, ▴▾ for lifts.
+const ARROWS: Record<number, string[]> = {
+  [T.Platform]: [".k.k.", "kk.kk", ".k.k."],
+  [T.Lift]: [".k..kkk", "kkk..k."],
+};
+
+// body, highlight, shade
+const PLANK_LOOK: Record<number, [string, string, string]> = {
+  [T.Platform]: [PAL.wood, PAL.apricot, PAL.woodDark],
+  [T.Lift]: [PAL.stone, PAL.bone, "#6b5f70"],
+  [T.Bridge]: [PAL.sand, PAL.cream, PAL.sandDark],
+};
+
+/**
+ * A plank `w` px wide with its top-left at x, y. Platforms are wood with arrows,
+ * lifts are metal with arrows, bridges are pale slats.
+ */
+function drawPlank(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, w: number) {
+  const [body, light, shade] = PLANK_LOOK[kind];
+  const H = PLANK_H;
+  ctx.fillStyle = PAL.ink;
+  ctx.fillRect(x + 1, y, w - 2, H);
+  ctx.fillRect(x, y + 1, w, H - 2);
+  ctx.fillStyle = body;
+  ctx.fillRect(x + 1, y + 1, w - 2, H - 2);
+  ctx.fillStyle = light;
+  ctx.fillRect(x + 1, y + 1, w - 2, 1);
+  ctx.fillStyle = shade;
+  ctx.fillRect(x + 1, y + H - 2, w - 2, 1);
+  const art = ARROWS[kind];
+  const top = y + (kind === T.Lift ? 2 : 1);
+  for (let tx = x; tx < x + w; tx += TILE) {
+    ctx.fillStyle = shade;
+    if (art) {
+      const left = tx + ((TILE - art[0].length) >> 1);
+      for (let r = 0; r < art.length; r++)
+        for (let c = 0; c < art[r].length; c++) if (art[r][c] === "k") ctx.fillRect(left + c, top + r, 1, 1);
+    } else {
+      for (let sx = 4; sx < TILE; sx += 4) ctx.fillRect(tx + sx, y + 2, 1, H - 3);
+    }
+    // a seam where tiles join
+    ctx.fillStyle = PAL.ink;
+    if (tx > x) ctx.fillRect(tx, y + 2, 1, H - 3);
+  }
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D) {
@@ -291,6 +366,7 @@ function drawHover(ctx: CanvasRenderingContext2D, h: { c: number; r: number; til
         ? null
         : { [T.Spike]: a.tiles.spike, [T.Spring]: a.tiles.spring, [T.Crumble]: a.tiles.crumble, [T.Goal]: a.tiles.goal, [T.Sign]: a.tiles.sign, [T.Start]: a.horse.stand.right }[h.tile];
     if (img) ctx.drawImage(img, x, y);
+    else if (h.tile === T.Platform || h.tile === T.Lift || h.tile === T.Bridge) drawPlank(ctx, h.tile, x, y, TILE);
     else {
       ctx.fillStyle = PAL.dirt;
       ctx.fillRect(x, y, TILE, TILE);
@@ -345,6 +421,27 @@ export function drawDeathMark(ctx: CanvasRenderingContext2D, x: number, y: numbe
   for (let i = -s; i <= s; i++) {
     ctx.fillRect(x + i, y + i, 1, 1);
     ctx.fillRect(x + i, y - i, 1, 1);
+  }
+}
+
+/** In the editor, a little triangle off the leading edge of a plank: the way it heads first. */
+function drawStartArrow(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, w: number, dir: 1 | -1) {
+  // a 5-3-1 stack pointing away from the plank, outlined so it shows up against the sun
+  for (const [color, pad] of [
+    [PAL.ink, 1],
+    [PAL.butter, 0],
+  ] as const) {
+    ctx.fillStyle = color;
+    for (let i = 0; i < 3; i++) {
+      const len = 5 - i * 2 + pad * 2;
+      if (kind === T.Platform) {
+        const ax = dir > 0 ? x + w + 2 + i : x - 3 - i;
+        ctx.fillRect(ax - pad, y + i - pad, 1 + pad * 2, len);
+      } else {
+        const ay = dir > 0 ? y + PLANK_H + 2 + i : y - 3 - i;
+        ctx.fillRect(x + (w >> 1) - 2 + i - pad, ay - pad, len, 1 + pad * 2);
+      }
+    }
   }
 }
 
@@ -441,6 +538,11 @@ export function tileIcon(tile: number): string {
       break;
     case T.Start:
       ctx.drawImage(a.horse.stand.right, 0, 0);
+      break;
+    case T.Platform:
+    case T.Lift:
+    case T.Bridge:
+      drawPlank(ctx, tile, 0, 5, 16);
       break;
   }
   return c.toDataURL();
