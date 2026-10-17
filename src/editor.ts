@@ -29,6 +29,18 @@ const TOOLS: { tile: T; name: string; key: string; tip: string }[] = [
   { tile: T.Spring, name: "Spring", key: "3", tip: "Launches you about seven tiles up." },
   { tile: T.Crumble, name: "Crumble", key: "4", tip: "Falls away shortly after you step on it." },
   { tile: T.Fake, name: "Fake", key: "5", tip: "Looks exactly like ground. Isn't. Only you can see the marks." },
+  {
+    tile: T.Platform,
+    name: "Platform",
+    key: "p",
+    tip: "Slides side to side, turning back at anything in its way. Paint a row of them for a wider one. Jump up through it, land on top.",
+  },
+  {
+    tile: T.Lift,
+    name: "Lift",
+    key: "l",
+    tip: "Rides up and down, turning back at anything in its way. Stops a tile short of the ceiling so there's room to ride.",
+  },
   { tile: T.Sign, name: "Sign", key: "6", tip: "Says whatever you want. Lie if you like." },
   { tile: T.Start, name: "Start", key: "7", tip: "Where the horse begins. Only one." },
   { tile: T.Goal, name: "Goal", key: "8", tip: "Touch it to win." },
@@ -124,10 +136,10 @@ export async function startEditor(root: HTMLElement) {
   const toolButtons = TOOLS.map((tl) => {
     const b = h(
       "button",
-      { class: "tool", title: `${tl.name} (${tl.key}): ${tl.tip}`, "data-tile": tl.tile, onclick: () => pick(tl.tile) },
+      { class: "tool", title: `${tl.name} (${tl.key.toUpperCase()}): ${tl.tip}`, "data-tile": tl.tile, onclick: () => pick(tl.tile) },
       tl.tile === T.Empty ? h("span", { class: "erase-icon" }, "✕") : h("img", { src: tileIcon(tl.tile), alt: "" }),
       h("span", { class: "tool-name" }, tl.name),
-      h("kbd", {}, tl.key),
+      h("kbd", {}, tl.key.toUpperCase()),
     );
     palette.append(b);
     return b;
@@ -452,7 +464,7 @@ export async function startEditor(root: HTMLElement) {
       doRedo();
       return;
     }
-    const tl = TOOLS.find((x) => x.key === e.key) ?? (e.key === "e" ? TOOLS[TOOLS.length - 1] : undefined);
+    const tl = TOOLS.find((x) => x.key === e.key.toLowerCase()) ?? (e.key === "e" ? TOOLS[TOOLS.length - 1] : undefined);
     if (tl) pick(tl.tile);
   });
 

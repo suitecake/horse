@@ -16,9 +16,12 @@ export const enum T {
   Crumble = 6,
   Fake = 7,
   Sign = 8,
+  Platform = 9, // moves side to side
+  Lift = 10, // moves up and down
 }
 
-export const TILE_COUNT = 9;
+/** The link format packs a tile into 4 bits, so there's room for 16. */
+export const TILE_COUNT = 11;
 
 export interface Level {
   title: string;

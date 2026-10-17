@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COLS, idx, ROWS, starterLevel, T, emptyLevel } from "../src/level";
-import { createSim, runReplay, step } from "../src/sim";
+import { createSim, platformsOf, platPos, PH, runReplay, step } from "../src/sim";
 import { IN_JUMP, IN_LEFT, IN_RIGHT, MAX_FRAMES, writeReplay } from "../src/replay";
 import { deflate, inflate, pack, Writer } from "../src/codec";
 import {
@@ -97,6 +97,147 @@ describe("sim", () => {
     const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff);
     const inputs = Uint8Array.from({ length: 2000 }, () => (rand() >> 16) % 8);
     expect(runReplay(l, inputs)).toEqual(runReplay(l, inputs));
+  });
+});
+
+describe("moving platforms", () => {
+  const TS = 16 * 256;
+
+  /** A floorless level: a start on a ledge at the left, the pit everywhere else. */
+  function ledge(): ReturnType<typeof emptyLevel> {
+    const l = emptyLevel();
+    for (let c = 0; c < 3; c++) l.tiles[idx(c, 12)] = T.Solid;
+    l.tiles[idx(1, 11)] = T.Start;
+    return l;
+  }
+
+  it("turns around at anything in the way, fakes included", () => {
+    const l = emptyLevel();
+    l.tiles[idx(4, 5)] = T.Solid;
+    l.tiles[idx(6, 5)] = T.Platform;
+    l.tiles[idx(7, 5)] = T.Platform;
+    l.tiles[idx(12, 5)] = T.Fake;
+    const [pl] = platformsOf(l);
+    expect(platformsOf(l).length).toBe(1);
+    expect(pl.w).toBe(2 * TS);
+    expect(pl.lo).toBe(5 * TS);
+    expect(pl.hi).toBe(10 * TS);
+    const xs = Array.from({ length: 400 }, (_, f) => platPos(pl, f).x);
+    expect(Math.min(...xs)).toBe(5 * TS);
+    expect(Math.max(...xs)).toBe(10 * TS);
+    expect(xs[1]).toBeGreaterThan(xs[0]); // heads right first
+  });
+
+  it("lifts stop a tile short of the ceiling", () => {
+    const l = emptyLevel();
+    l.tiles[idx(5, 2)] = T.Solid;
+    l.tiles[idx(5, 10)] = T.Lift;
+    l.tiles[idx(5, 14)] = T.Spike;
+    const [pl] = platformsOf(l);
+    expect(pl.lo).toBe(4 * TS);
+    expect(pl.hi).toBe(14 * TS - 6 * 256);
+    expect(platPos(pl, 1).y).toBeLessThan(platPos(pl, 0).y); // heads up first
+  });
+
+  it("carries you across a pit", () => {
+    const l = ledge();
+    l.tiles[idx(1, 11)] = T.Empty;
+    l.tiles[idx(3, 11)] = T.Start; // standing on the platform
+    for (let c = 3; c < 5; c++) l.tiles[idx(c, 12)] = T.Platform;
+    for (let c = 28; c < 32; c++) l.tiles[idx(c, 12)] = T.Solid;
+    l.tiles[idx(30, 11)] = T.Goal;
+    // ride it to the far side, then walk off
+    const sim = createSim(l);
+    const inputs = [...hold(0, 345), ...hold(IN_RIGHT, 100)];
+    let rode = false;
+    for (const i of inputs) {
+      step(sim, i);
+      if (sim.p.ride >= 0) rode = true;
+    }
+    expect(rode).toBe(true);
+    expect(sim.status).toBe("won");
+  });
+
+  it("lets you jump up through from below and land on top", () => {
+    const l = flat();
+    l.tiles[idx(1, ROWS - 3)] = T.Platform;
+    l.tiles[idx(2, ROWS - 3)] = T.Platform;
+    l.tiles[idx(3, ROWS - 3)] = T.Platform;
+    l.tiles[idx(0, ROWS - 3)] = T.Solid;
+    l.tiles[idx(4, ROWS - 3)] = T.Solid; // pin it in place
+    const sim = createSim(l);
+    for (let i = 0; i < 20; i++) step(sim, 0);
+    for (let i = 0; i < 60; i++) step(sim, IN_JUMP);
+    expect(sim.p.grounded).toBe(true);
+    expect(sim.p.ride).toBe(0);
+    expect(sim.p.y + PH * 256).toBe((ROWS - 3) * TS);
+  });
+
+  it("rides a lift up to a tile short of the ceiling", () => {
+    const l = flat();
+    l.tiles[idx(2, ROWS - 2)] = T.Empty;
+    l.tiles[idx(2, ROWS - 3)] = T.Start; // standing on the lift
+    l.tiles[idx(2, ROWS - 2)] = T.Lift;
+    l.tiles[idx(2, 4)] = T.Solid;
+    const sim = createSim(l);
+    let minY = Infinity;
+    for (let i = 0; i < 400; i++) {
+      step(sim, 0);
+      minY = Math.min(minY, sim.p.y);
+      expect(sim.p.ride).toBe(0);
+    }
+    expect(sim.status).toBe("playing");
+    expect(minY + PH * 256).toBe(6 * TS);
+  });
+
+  it("a rising lift catches you mid-air", () => {
+    // you start in mid-air above a lift, which rises to meet you
+    const l = flat();
+    for (let c = 1; c < 4; c++) l.tiles[idx(c, ROWS - 2)] = T.Lift;
+    l.tiles[idx(2, ROWS - 2)] = T.Lift;
+    l.tiles[idx(2, ROWS - 4)] = T.Start;
+    for (let c = 0; c < 5; c++) if (c < 1 || c > 3) l.tiles[idx(c, ROWS - 4)] = T.Solid;
+    const sim = createSim(l);
+    expect(sim.plats.length).toBe(1);
+    let caught = -1;
+    for (let i = 0; i < 120 && caught < 0; i++) {
+      step(sim, 0);
+      if (sim.p.ride >= 0) caught = i;
+    }
+    expect(caught).toBeGreaterThan(0);
+    const y = sim.p.y;
+    for (let i = 0; i < 30; i++) step(sim, 0);
+    expect(sim.p.ride).toBe(0);
+    expect(sim.p.y).toBe(y - 30 * 256);
+  });
+
+  it("slides out from under you when a wall stops you", () => {
+    const l = ledge();
+    l.tiles[idx(3, 12)] = T.Platform;
+    for (let r = 0; r < 12; r++) l.tiles[idx(8, r)] = T.Solid; // a wall above the platform's path
+    const out = runReplay(l, Uint8Array.from([...hold(IN_RIGHT, 22), ...hold(0, 400)]));
+    expect(out.status).toBe("dead");
+    expect(out.cause).toBe("pit");
+  });
+
+  it("doesn't move until the clock starts, and is deterministic", () => {
+    const l = ledge();
+    l.tiles[idx(4, 12)] = T.Platform;
+    l.tiles[idx(6, 8)] = T.Lift;
+    let seed = 5;
+    const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff);
+    const inputs = Uint8Array.from({ length: 3000 }, () => (rand() >> 16) % 8);
+    expect(runReplay(l, inputs)).toEqual(runReplay(l, inputs));
+    const [pl] = createSim(l).plats;
+    expect(platPos(pl, 0)).toEqual({ x: pl.x, y: pl.y });
+  });
+
+  it("round-trips through a level link", async () => {
+    const level = ledge();
+    level.tiles[idx(4, 12)] = T.Platform;
+    level.tiles[idx(6, 8)] = T.Lift;
+    const back = await decodeLevelLink(await encodeLevelLink({ level, clear: Uint8Array.from(hold(IN_RIGHT, 10)) }));
+    expect(back.level.tiles).toEqual(level.tiles);
   });
 });
 

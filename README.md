@@ -20,7 +20,9 @@ Keep `sim.ts` free of floats, `Math.random`, and wall-clock time.
 
 ## Blocks
 
-Ground, Spikes, Spring, Crumble (falls 24 frames after you step on it), Fake (looks exactly like ground, isn't), Sign, Start, Goal.
+Ground, Spikes, Spring, Crumble (falls 24 frames after you step on it), Fake (looks exactly like ground, isn't), Platform, Lift, Sign, Start, Goal.
+
+Platforms slide side to side and Lifts ride up and down. Both travel through empty space and turn around at anything else (fake blocks included, so they never give one away), and a run of them side by side is one wide plank. They're one-way: jump up through them, land on top, get carried. They never push you, so nothing gets crushed; if a wall or ceiling stops you, the plank slides out from under you. Lifts stop a tile short of a ceiling so there's always room to ride. Where a platform is depends only on the frame number, so every ghost shares the same platforms.
 
 ## Development
 
