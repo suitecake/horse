@@ -2,7 +2,7 @@
 // scaled up by a whole number so pixels stay square.
 
 import { COLS, HEIGHT, ROWS, T, TILE, WIDTH, type Level } from "./level";
-import { CRUMBLE_DELAY, PH, PLANK_H, PW, crumbleFallen, platformsOf, platPos, type Sim } from "./sim";
+import { CRUMBLE_DELAY, PH, PLANK_H, PW, crumbleFallen, platformsOf, platPos, startDir, type Sim } from "./sim";
 import { flipped, HORSE_ART, PAL, silhouette, sprite, TILE_ART } from "./sprites";
 
 type Img = HTMLCanvasElement;
@@ -242,6 +242,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, level: Level, o: DrawOp
   for (const pl of plats) {
     const at = platPos(pl, frame);
     drawPlank(ctx, pl.kind, at.x >> 8, at.y >> 8, pl.w >> 8);
+    if (o.editor) drawStartArrow(ctx, pl.kind, at.x >> 8, at.y >> 8, pl.w >> 8, startDir(pl));
   }
   if (o.hover) drawHover(ctx, o.hover, o.t);
 }
@@ -405,6 +406,27 @@ export function drawDeathMark(ctx: CanvasRenderingContext2D, x: number, y: numbe
   for (let i = -s; i <= s; i++) {
     ctx.fillRect(x + i, y + i, 1, 1);
     ctx.fillRect(x + i, y - i, 1, 1);
+  }
+}
+
+/** In the editor, a little triangle off the leading edge of a plank: the way it heads first. */
+function drawStartArrow(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, w: number, dir: 1 | -1) {
+  // a 5-3-1 stack pointing away from the plank, outlined so it shows up against the sun
+  for (const [color, pad] of [
+    [PAL.ink, 1],
+    [PAL.butter, 0],
+  ] as const) {
+    ctx.fillStyle = color;
+    for (let i = 0; i < 3; i++) {
+      const len = 5 - i * 2 + pad * 2;
+      if (kind === T.Platform) {
+        const ax = dir > 0 ? x + w + 2 + i : x - 3 - i;
+        ctx.fillRect(ax - pad, y + i - pad, 1 + pad * 2, len);
+      } else {
+        const ay = dir > 0 ? y + PLANK_H + 2 + i : y - 3 - i;
+        ctx.fillRect(x + (w >> 1) - 2 + i - pad, ay - pad, len, 1 + pad * 2);
+      }
+    }
   }
 }
 

@@ -28,6 +28,8 @@ export interface Level {
   author: string;
   tiles: Uint8Array; // COLS * ROWS, row-major
   signs: Map<number, string>; // tile index -> text
+  /** Platform and Lift tiles that start off going the other way (left, or down). */
+  flips: Set<number>;
 }
 
 export const SIGN_MAX = 80;
@@ -39,11 +41,15 @@ export function idx(col: number, row: number): number {
 }
 
 export function emptyLevel(): Level {
-  return { title: "", author: "", tiles: new Uint8Array(COLS * ROWS), signs: new Map() };
+  return { title: "", author: "", tiles: new Uint8Array(COLS * ROWS), signs: new Map(), flips: new Set() };
 }
 
 export function cloneLevel(l: Level): Level {
-  return { title: l.title, author: l.author, tiles: l.tiles.slice(), signs: new Map(l.signs) };
+  return { title: l.title, author: l.author, tiles: l.tiles.slice(), signs: new Map(l.signs), flips: new Set(l.flips) };
+}
+
+export function isPlank(t: number): boolean {
+  return t === T.Platform || t === T.Lift;
 }
 
 export function findTile(l: Level, t: T): number {

@@ -6,17 +6,24 @@
 // Both are a versioned binary blob, deflated, then base64url.
 
 import { pack, Reader, unpack, Writer } from "./codec";
-import { COLS, NAME_MAX, ROWS, SIGN_MAX, T, TILE_COUNT, TITLE_MAX, type Level } from "./level";
+import { COLS, isPlank, NAME_MAX, ROWS, SIGN_MAX, T, TILE_COUNT, TITLE_MAX, type Level } from "./level";
 import { MAX_FRAMES, readReplay, writeReplay } from "./replay";
 import { runReplay } from "./sim";
 
-const LEVEL_VERSION = 1;
-const GHOST_VERSION = 2;
+const LEVEL_VERSION = 2;
+const GHOST_VERSION = 3;
+
+/**
+ * How a level itself is laid out inside a link or draft.
+ *   1: title, author, tiles, signs
+ *   2: plus which platforms start off going the other way
+ */
+export const LEVEL_FORMAT = 2;
 
 /** Discord's message limit is 2000 characters; leave room for a few words. */
 export const URL_BUDGET = 1900;
 
-export function writeLevel(w: Writer, l: Level) {
+export function writeLevel(w: Writer, l: Level, format = LEVEL_FORMAT) {
   w.str(l.title.slice(0, TITLE_MAX));
   w.str(l.author.slice(0, NAME_MAX));
   const t = l.tiles;
@@ -40,9 +47,13 @@ export function writeLevel(w: Writer, l: Level) {
     w.varint(i);
     w.str(s.slice(0, SIGN_MAX));
   }
+  if (format < 2) return;
+  const flips = [...l.flips].filter((i) => isPlank(t[i])).sort((a, b) => a - b);
+  w.varint(flips.length);
+  for (const i of flips) w.varint(i);
 }
 
-export function readLevel(r: Reader): Level {
+export function readLevel(r: Reader, format = LEVEL_FORMAT): Level {
   const title = r.str().slice(0, TITLE_MAX);
   const author = r.str().slice(0, NAME_MAX);
   const tiles = new Uint8Array(COLS * ROWS);
@@ -64,7 +75,14 @@ export function readLevel(r: Reader): Level {
     const s = r.str().slice(0, SIGN_MAX);
     if (i < tiles.length && tiles[i] === T.Sign) signs.set(i, s);
   }
-  return { title, author, tiles, signs };
+  const flips = new Set<number>();
+  const nf = format < 2 ? 0 : r.varint();
+  if (nf > tiles.length) throw new Error("bad platform data");
+  for (let k = 0; k < nf; k++) {
+    const i = r.varint();
+    if (i < tiles.length && isPlank(tiles[i])) flips.add(i);
+  }
+  return { title, author, tiles, signs, flips };
 }
 
 export interface LevelLink {
@@ -94,8 +112,8 @@ export async function encodeLevelLink(link: LevelLink): Promise<string> {
 export async function decodeLevelLink(s: string): Promise<LevelLink> {
   const r = new Reader(await unpack(s));
   const v = r.u8();
-  if (v !== LEVEL_VERSION) throw new Error(`unknown level version ${v}`);
-  const level = readLevel(r);
+  if (v !== 1 && v !== LEVEL_VERSION) throw new Error(`unknown level version ${v}`);
+  const level = readLevel(r, v === 1 ? 1 : 2);
   const clear = readReplay(r);
   return { level, clear };
 }
@@ -173,8 +191,8 @@ export async function encodeGhostLink(
 export async function decodeGhostLink(s: string): Promise<GhostLink> {
   const r = new Reader(await unpack(s));
   const v = r.u8();
-  if (v !== 1 && v !== GHOST_VERSION) throw new Error(`unknown ghost version ${v}`);
-  const level = readLevel(r);
+  if (v < 1 || v > GHOST_VERSION) throw new Error(`unknown ghost version ${v}`);
+  const level = readLevel(r, v < 3 ? 1 : 2);
   const clear = readReplay(r);
   const player = r.str().slice(0, NAME_MAX);
   let total = r.varint();

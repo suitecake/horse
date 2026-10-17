@@ -261,6 +261,8 @@ export interface Plat {
   /** How far it travels: the range of x for a Platform, of y for a Lift. */
   lo: number;
   hi: number;
+  /** Starts off left (Platform) or down (Lift) instead of right or up. */
+  flip: boolean;
 }
 
 function passable(t: number): boolean {
@@ -281,12 +283,14 @@ export function platformsOf(level: Level): Plat[] {
       let c1 = c;
       while (c1 + 1 < COLS && t[r * COLS + c1 + 1] === kind) c1++;
       const w = c1 - c + 1;
+      let flip = false;
+      for (let k = c; k <= c1; k++) if (level.flips.has(r * COLS + k)) flip = true;
       if (kind === T.Platform) {
         let left = c;
         while (free(left - 1, r)) left--;
         let right = c1;
         while (free(right + 1, r)) right++;
-        out.push({ kind, x: c * TS, y: r * TS, w: w * TS, lo: left * TS, hi: (right + 1 - w) * TS });
+        out.push({ kind, x: c * TS, y: r * TS, w: w * TS, lo: left * TS, hi: (right + 1 - w) * TS, flip });
       } else {
         const rowFree = (row: number) => {
           for (let k = c; k <= c1; k++) if (!free(k, row)) return false;
@@ -298,7 +302,7 @@ export function platformsOf(level: Level): Plat[] {
         while (rowFree(bottom + 1)) bottom++;
         // stop a tile short of the ceiling, so there's room to ride it
         const lo = Math.min(r, top + 1) * TS;
-        out.push({ kind, x: c * TS, y: r * TS, w: w * TS, lo, hi: (bottom + 1) * TS - PLANK_H * SUB });
+        out.push({ kind, x: c * TS, y: r * TS, w: w * TS, lo, hi: (bottom + 1) * TS - PLANK_H * SUB, flip });
       }
       c = c1 + 1;
     }
@@ -306,16 +310,22 @@ export function platformsOf(level: Level): Plat[] {
   return out;
 }
 
-/** Where a platform's top-left is on a given frame. Platforms head right first, lifts up. */
+/** Which way a platform heads first: +1 for right or down, -1 for left or up. */
+export function startDir(pl: Plat): 1 | -1 {
+  return (pl.kind === T.Platform) !== pl.flip ? 1 : -1;
+}
+
+/** Where a platform's top-left is on a given frame. Unflipped, platforms head right first and lifts up. */
 export function platPos(pl: Plat, frame: number): { x: number; y: number } {
   const across = pl.kind === T.Platform;
   const span = pl.hi - pl.lo;
   let at = across ? pl.x : pl.y;
   if (span > 0) {
-    // distance travelled around a there-and-back loop
-    const d = ((across ? at - pl.lo : pl.hi - at) + frame * PLAT_SPEED) % (2 * span);
+    // distance travelled around a there-and-back loop, measured from the end it heads away from
+    const fwd = startDir(pl) > 0;
+    const d = ((fwd ? at - pl.lo : pl.hi - at) + frame * PLAT_SPEED) % (2 * span);
     const off = d <= span ? d : 2 * span - d;
-    at = across ? pl.lo + off : pl.hi - off;
+    at = fwd ? pl.lo + off : pl.hi - off;
   }
   return across ? { x: at, y: pl.y } : { x: pl.x, y: at };
 }

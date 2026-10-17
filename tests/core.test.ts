@@ -232,12 +232,35 @@ describe("moving platforms", () => {
     expect(platPos(pl, 0)).toEqual({ x: pl.x, y: pl.y });
   });
 
-  it("round-trips through a level link", async () => {
+  it("can be flipped to start off the other way", () => {
+    const l = emptyLevel();
+    l.tiles[idx(6, 5)] = T.Platform;
+    l.tiles[idx(7, 5)] = T.Platform;
+    l.tiles[idx(12, 9)] = T.Lift;
+    const [a, b] = platformsOf(l);
+    expect(platPos(a, 1).x).toBeGreaterThan(platPos(a, 0).x);
+    expect(platPos(b, 1).y).toBeLessThan(platPos(b, 0).y);
+    // any tile of a plank flips the whole plank
+    l.flips.add(idx(7, 5));
+    l.flips.add(idx(12, 9));
+    const [fa, fb] = platformsOf(l);
+    expect(platPos(fa, 1).x).toBeLessThan(platPos(fa, 0).x);
+    expect(platPos(fb, 1).y).toBeGreaterThan(platPos(fb, 0).y);
+    // same loop, just started from the other end
+    const xs = Array.from({ length: 2000 }, (_, f) => platPos(fa, f).x);
+    expect(Math.min(...xs)).toBe(fa.lo);
+    expect(Math.max(...xs)).toBe(fa.hi);
+  });
+
+  it("round-trips through a level link, directions and all", async () => {
     const level = ledge();
     level.tiles[idx(4, 12)] = T.Platform;
     level.tiles[idx(6, 8)] = T.Lift;
+    level.flips.add(idx(6, 8));
+    level.flips.add(idx(20, 3)); // not a platform: dropped
     const back = await decodeLevelLink(await encodeLevelLink({ level, clear: Uint8Array.from(hold(IN_RIGHT, 10)) }));
     expect(back.level.tiles).toEqual(level.tiles);
+    expect([...back.level.flips]).toEqual([idx(6, 8)]);
   });
 });
 
@@ -329,7 +352,7 @@ describe("share links", () => {
   it("refuses ghost links with too many frames", async () => {
     const w = new Writer();
     w.u8(2);
-    writeLevel(w, flat());
+    writeLevel(w, flat(), 1);
     writeReplay(w, Uint8Array.from(hold(IN_LEFT, 10)));
     w.str("evil");
     w.varint(5000);
@@ -353,7 +376,7 @@ describe("share links", () => {
     const lose = Uint8Array.from(hold(IN_LEFT, 50));
     const w = new Writer();
     w.u8(1);
-    writeLevel(w, level);
+    writeLevel(w, level, 1);
     writeReplay(w, win);
     w.str("pal");
     w.varint(3);
@@ -363,6 +386,40 @@ describe("share links", () => {
     expect(back.firstClear).toBe(2);
     expect(back.clears).toBe(2);
     expect(back.total).toBe(3);
+  });
+
+  it("still reads v1 level links", async () => {
+    const level = starterLevel();
+    const clear = Uint8Array.from(hold(IN_RIGHT, 40));
+    const w = new Writer();
+    w.u8(1);
+    writeLevel(w, level, 1);
+    writeReplay(w, clear);
+    const back = await decodeLevelLink(await pack(w.finish()));
+    expect(back.level.tiles).toEqual(level.tiles);
+    expect(back.level.signs).toEqual(level.signs);
+    expect(back.level.flips.size).toBe(0);
+    expect(back.clear).toEqual(clear);
+  });
+
+  it("still reads v2 ghost links", async () => {
+    const level = flat();
+    level.tiles[idx(12, ROWS - 2)] = T.Goal;
+    const win = Uint8Array.from(hold(IN_RIGHT, 200));
+    const w = new Writer();
+    w.u8(2);
+    writeLevel(w, level, 1);
+    writeReplay(w, win);
+    w.str("pal");
+    w.varint(1);
+    w.varint(1);
+    w.varint(1);
+    w.varint(1);
+    writeReplay(w, win);
+    const back = await decodeGhostLink(await pack(w.finish()));
+    expect(back.level.tiles).toEqual(level.tiles);
+    expect(back.firstClear).toBe(1);
+    expect(back.attempts).toEqual([win]);
   });
 
   it("caps how far data inflates", async () => {
