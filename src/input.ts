@@ -1,10 +1,11 @@
 // Keyboard state, sampled once per sim step.
 
-import { IN_JUMP, IN_LEFT, IN_RIGHT } from "./replay";
+import { IN_DOWN, IN_JUMP, IN_LEFT, IN_RIGHT } from "./replay";
 
 const LEFT = new Set(["ArrowLeft", "KeyA"]);
 const RIGHT = new Set(["ArrowRight", "KeyD"]);
 const JUMP = new Set(["Space", "KeyZ", "ArrowUp", "KeyW", "KeyK"]);
+const DOWN = new Set(["ArrowDown", "KeyS"]);
 
 const held = new Set<string>();
 
@@ -24,7 +25,7 @@ window.addEventListener("keydown", (e) => {
   if (isTyping()) return;
   // a button focused from the keyboard gets Space as usual
   if (e.code === "Space" && document.activeElement instanceof HTMLButtonElement) return;
-  if (LEFT.has(e.code) || RIGHT.has(e.code) || JUMP.has(e.code)) {
+  if (LEFT.has(e.code) || RIGHT.has(e.code) || JUMP.has(e.code) || DOWN.has(e.code)) {
     held.add(e.code);
     e.preventDefault();
   }
@@ -38,6 +39,7 @@ export function sampleInput(): number {
     if (LEFT.has(k)) n |= IN_LEFT;
     if (RIGHT.has(k)) n |= IN_RIGHT;
     if (JUMP.has(k)) n |= IN_JUMP;
+    if (DOWN.has(k)) n |= IN_DOWN;
   }
   return n;
 }

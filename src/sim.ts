@@ -6,7 +6,7 @@
 // Don't introduce floats, Math.random, or wall-clock time in this file.
 
 import { COLS, ROWS, T, type Level } from "./level";
-import { IN_JUMP, IN_LEFT, IN_RIGHT, MAX_FRAMES } from "./replay";
+import { IN_DOWN, IN_JUMP, IN_LEFT, IN_RIGHT, MAX_FRAMES } from "./replay";
 
 const SUB = 256;
 const TS = 16 * SUB; // tile size in subpixels
@@ -171,8 +171,11 @@ function moveX(sim: Sim) {
   if (p.vx !== 0 && slideX(sim, p.vx)) p.vx = 0;
 }
 
-/** `y0` is where the player was at the start of the step, before any platform carried them. */
-function moveY(sim: Sim, y0: number) {
+/**
+ * `y0` is where the player was at the start of the step, before any platform
+ * carried them. Holding `down` drops through planks.
+ */
+function moveY(sim: Sim, y0: number, down: boolean) {
   const p = sim.p;
   const ny = p.y + p.vy;
   const c0 = p.x >> TSHIFT;
@@ -180,7 +183,7 @@ function moveY(sim: Sim, y0: number) {
   const wasGrounded = p.grounded;
   p.grounded = false;
   p.ride = -1;
-  const plat = sim.plats.length ? platformLanding(sim, y0, ny) : -1;
+  const plat = sim.plats.length && !down ? platformLanding(sim, y0, ny) : -1;
   const platY = plat < 0 ? 0 : platPos(sim.plats[plat], sim.frame + 1).y - PH * SUB;
   if (p.vy > 0) {
     const r = (ny + PH * SUB - 1) >> TSHIFT;
@@ -235,16 +238,17 @@ function moveY(sim: Sim, y0: number) {
   p.y = ny;
 }
 
-// --- moving platforms ---
+// --- planks: moving platforms, and bridges ---
 //
 // Platform and Lift tiles turn into planks that go back and forth along their
 // row or column. They travel through empty space and turn around at anything
 // else, fake blocks included, so a platform never gives a fake away. A run of
-// the same tile side by side is one wide plank.
+// the same tile side by side is one wide plank. A Bridge is a plank that
+// doesn't move.
 //
-// They're one-way: jump up through them, land on top, get carried. They never
-// push the player, so nothing gets crushed; if a wall or ceiling blocks a
-// rider, the plank slides out from under them.
+// They're one-way: jump up through them, land on top, get carried, hold Down
+// to drop through. They never push the player, so nothing gets crushed; if a
+// wall or ceiling blocks a rider, the plank slides out from under them.
 //
 // Where a platform is depends only on the frame number, never on the player,
 // so every ghost in a replay shares the same platforms.
@@ -253,7 +257,7 @@ export const PLANK_H = 6; // px
 const PLAT_SPEED = SUB; // one pixel per frame
 
 export interface Plat {
-  kind: T.Platform | T.Lift;
+  kind: T.Platform | T.Lift | T.Bridge;
   /** Top-left of the plank where it was placed, in subpixels. */
   x: number;
   y: number;
@@ -276,7 +280,7 @@ export function platformsOf(level: Level): Plat[] {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; ) {
       const kind = t[r * COLS + c];
-      if (kind !== T.Platform && kind !== T.Lift) {
+      if (kind !== T.Platform && kind !== T.Lift && kind !== T.Bridge) {
         c++;
         continue;
       }
@@ -285,7 +289,9 @@ export function platformsOf(level: Level): Plat[] {
       const w = c1 - c + 1;
       let flip = false;
       for (let k = c; k <= c1; k++) if (level.flips.has(r * COLS + k)) flip = true;
-      if (kind === T.Platform) {
+      if (kind === T.Bridge) {
+        out.push({ kind, x: c * TS, y: r * TS, w: w * TS, lo: c * TS, hi: c * TS, flip: false });
+      } else if (kind === T.Platform) {
         let left = c;
         while (free(left - 1, r)) left--;
         let right = c1;
@@ -317,7 +323,7 @@ export function startDir(pl: Plat): 1 | -1 {
 
 /** Where a platform's top-left is on a given frame. Unflipped, platforms head right first and lifts up. */
 export function platPos(pl: Plat, frame: number): { x: number; y: number } {
-  const across = pl.kind === T.Platform;
+  const across = pl.kind !== T.Lift;
   const span = pl.hi - pl.lo;
   let at = across ? pl.x : pl.y;
   if (span > 0) {
@@ -456,7 +462,7 @@ export function step(sim: Sim, input: number) {
   if (p.vy > MAX_FALL) p.vy = MAX_FALL;
 
   moveX(sim);
-  moveY(sim, y0);
+  moveY(sim, y0, (input & IN_DOWN) !== 0);
   sim.frame++;
   checkTouch(sim);
   if (sim.status === "playing" && sim.frame >= MAX_FRAMES) die(sim, "timeout");

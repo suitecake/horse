@@ -3,7 +3,7 @@
 
 import { fromBase64Url, toBase64Url } from "./codec";
 import { clearInput, isTyping, sampleInput } from "./input";
-import { NAME_MAX } from "./level";
+import { hasPlanks, NAME_MAX } from "./level";
 import { drawSimHorse } from "./render";
 import { Runner } from "./runner";
 import { decodeLevelLink, encodeGhostLink, linkFor, URL_BUDGET } from "./share";
@@ -135,7 +135,9 @@ export async function startPlay(root: HTMLElement, data: string) {
     raceBtn.textContent = raceGhost ? `Hide ${by}'s ghost` : `Race ${by}'s ghost`;
     tip.innerHTML =
       attempts.length === 0
-        ? `${esc(by)} beat this, so it can be beaten. Arrows/WASD to run, Space/Z/↑ to jump.`
+        ? `${esc(by)} beat this, so it can be beaten. Arrows/WASD to run, Space/Z/↑ to jump${
+            hasPlanks(level) ? ", ↓ to drop through planks" : ""
+          }.`
         : !raceOk
           ? `Every attempt is recorded. ${esc(by)} gets to watch them all.`
           : `Every attempt is recorded. Stuck? Racing ${esc(by)}'s ghost shows you how they did it.`;

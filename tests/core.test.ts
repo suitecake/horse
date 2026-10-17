@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { COLS, idx, ROWS, starterLevel, T, emptyLevel } from "../src/level";
 import { createSim, platformsOf, platPos, PH, runReplay, step } from "../src/sim";
-import { IN_JUMP, IN_LEFT, IN_RIGHT, MAX_FRAMES, writeReplay } from "../src/replay";
-import { deflate, inflate, pack, Writer } from "../src/codec";
+import { IN_DOWN, IN_JUMP, IN_LEFT, IN_RIGHT, MAX_FRAMES, readReplay, writeReplay } from "../src/replay";
+import { deflate, inflate, pack, Reader, Writer } from "../src/codec";
 import {
   decodeGhostLink,
   decodeLevelLink,
@@ -252,6 +252,37 @@ describe("moving platforms", () => {
     expect(Math.max(...xs)).toBe(fa.hi);
   });
 
+  it("bridges hold you up, let you jump through, and drop you on Down", () => {
+    const l = flat();
+    for (let c = 0; c < 6; c++) l.tiles[idx(c, ROWS - 3)] = T.Bridge;
+    const sim = createSim(l);
+    expect(sim.plats.length).toBe(1);
+    const onFloor = (ROWS - 1) * TS - PH * 256;
+    const onBridge = (ROWS - 3) * TS - PH * 256;
+    for (let i = 0; i < 20; i++) step(sim, 0);
+    expect(sim.p.y).toBe(onFloor); // started under it
+    for (let i = 0; i < 60; i++) step(sim, IN_JUMP);
+    expect(sim.p.y).toBe(onBridge);
+    expect(sim.p.grounded).toBe(true);
+    for (let i = 0; i < 60; i++) step(sim, 0);
+    expect(sim.p.y).toBe(onBridge); // stays put
+    for (let i = 0; i < 4; i++) step(sim, IN_DOWN);
+    for (let i = 0; i < 60; i++) step(sim, 0);
+    expect(sim.p.y).toBe(onFloor);
+  });
+
+  it("holding Down drops you off a moving platform too", () => {
+    const l = ledge();
+    l.tiles[idx(1, 11)] = T.Empty;
+    l.tiles[idx(3, 11)] = T.Start;
+    for (let c = 3; c < 5; c++) l.tiles[idx(c, 12)] = T.Platform;
+    const ride = runReplay(l, Uint8Array.from(hold(0, 200)));
+    expect(ride.status).toBe("playing");
+    const drop = runReplay(l, Uint8Array.from([...hold(0, 100), ...hold(IN_DOWN, 100)]));
+    expect(drop.status).toBe("dead");
+    expect(drop.cause).toBe("pit");
+  });
+
   it("round-trips through a level link, directions and all", async () => {
     const level = ledge();
     level.tiles[idx(4, 12)] = T.Platform;
@@ -353,7 +384,7 @@ describe("share links", () => {
     const w = new Writer();
     w.u8(2);
     writeLevel(w, flat(), 1);
-    writeReplay(w, Uint8Array.from(hold(IN_LEFT, 10)));
+    writeReplay(w, Uint8Array.from(hold(IN_LEFT, 10)), 1);
     w.str("evil");
     w.varint(5000);
     w.varint(0);
@@ -377,11 +408,11 @@ describe("share links", () => {
     const w = new Writer();
     w.u8(1);
     writeLevel(w, level, 1);
-    writeReplay(w, win);
+    writeReplay(w, win, 1);
     w.str("pal");
     w.varint(3);
     w.varint(3);
-    for (const a of [lose, win, win]) writeReplay(w, a);
+    for (const a of [lose, win, win]) writeReplay(w, a, 1);
     const back = await decodeGhostLink(await pack(w.finish()));
     expect(back.firstClear).toBe(2);
     expect(back.clears).toBe(2);
@@ -394,7 +425,7 @@ describe("share links", () => {
     const w = new Writer();
     w.u8(1);
     writeLevel(w, level, 1);
-    writeReplay(w, clear);
+    writeReplay(w, clear, 1);
     const back = await decodeLevelLink(await pack(w.finish()));
     expect(back.level.tiles).toEqual(level.tiles);
     expect(back.level.signs).toEqual(level.signs);
@@ -409,17 +440,41 @@ describe("share links", () => {
     const w = new Writer();
     w.u8(2);
     writeLevel(w, level, 1);
-    writeReplay(w, win);
+    writeReplay(w, win, 1);
     w.str("pal");
     w.varint(1);
     w.varint(1);
     w.varint(1);
     w.varint(1);
-    writeReplay(w, win);
+    writeReplay(w, win, 1);
     const back = await decodeGhostLink(await pack(w.finish()));
     expect(back.level.tiles).toEqual(level.tiles);
     expect(back.firstClear).toBe(1);
     expect(back.attempts).toEqual([win]);
+  });
+
+  it("only spends the extra replay bit when Down is used", () => {
+    const enc = (inputs: Uint8Array, format?: number) => {
+      const w = new Writer();
+      writeReplay(w, inputs, format);
+      return w.finish();
+    };
+    const plain = Uint8Array.from([...hold(IN_RIGHT, 40), ...hold(IN_RIGHT | IN_JUMP, 12), ...hold(0, 300)]);
+    expect(enc(plain).length).toBe(enc(plain, 1).length);
+    expect(readReplay(new Reader(enc(plain)))).toEqual(plain);
+    const down = Uint8Array.from([...plain, ...hold(IN_DOWN, 20), ...hold(IN_DOWN | IN_LEFT | IN_JUMP, 7)]);
+    expect(readReplay(new Reader(enc(down)))).toEqual(down);
+    // format 1 has no room for Down
+    expect(readReplay(new Reader(enc(down, 1)), 1).every((x) => (x & IN_DOWN) === 0)).toBe(true);
+  });
+
+  it("round-trips a bridge level with a clear that uses Down", async () => {
+    const level = flat();
+    for (let c = 0; c < 6; c++) level.tiles[idx(c, ROWS - 3)] = T.Bridge;
+    const clear = Uint8Array.from([...hold(IN_JUMP, 30), ...hold(IN_DOWN, 10), ...hold(IN_RIGHT, 50)]);
+    const back = await decodeLevelLink(await encodeLevelLink({ level, clear }));
+    expect(back.level.tiles).toEqual(level.tiles);
+    expect(back.clear).toEqual(clear);
   });
 
   it("caps how far data inflates", async () => {

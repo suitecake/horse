@@ -18,10 +18,11 @@ export const enum T {
   Sign = 8,
   Platform = 9, // moves side to side
   Lift = 10, // moves up and down
+  Bridge = 11, // a plank that stays put
 }
 
 /** The link format packs a tile into 4 bits, so there's room for 16. */
-export const TILE_COUNT = 11;
+export const TILE_COUNT = 12;
 
 export interface Level {
   title: string;
@@ -48,8 +49,14 @@ export function cloneLevel(l: Level): Level {
   return { title: l.title, author: l.author, tiles: l.tiles.slice(), signs: new Map(l.signs), flips: new Set(l.flips) };
 }
 
-export function isPlank(t: number): boolean {
+/** Platforms and lifts: the planks that move, and can be flipped. */
+export function isMover(t: number): boolean {
   return t === T.Platform || t === T.Lift;
+}
+
+/** Whether there's anything to drop through with Down. */
+export function hasPlanks(l: Level): boolean {
+  return l.tiles.some((t) => t === T.Platform || t === T.Lift || t === T.Bridge);
 }
 
 export function findTile(l: Level, t: T): number {

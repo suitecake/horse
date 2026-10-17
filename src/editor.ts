@@ -7,7 +7,8 @@ import {
   cloneLevel,
   COLS,
   idx,
-  isPlank,
+  hasPlanks,
+  isMover,
   NAME_MAX,
   SIGN_MAX,
   starterLevel,
@@ -42,6 +43,12 @@ const TOOLS: { tile: T; name: string; key: string; tip: string }[] = [
     key: "l",
     tip: "Rides up and down, turning back at anything in its way, a tile short of the ceiling. Click one to flip which way it starts.",
   },
+  {
+    tile: T.Bridge,
+    name: "Bridge",
+    key: "b",
+    tip: "A thin plank that stays put. Jump up through it, stand on it, hold Down to drop through. So can any platform or lift.",
+  },
   { tile: T.Sign, name: "Sign", key: "6", tip: "Says whatever you want. Lie if you like." },
   { tile: T.Start, name: "Start", key: "7", tip: "Where the horse begins. Only one." },
   { tile: T.Goal, name: "Goal", key: "8", tip: "Touch it to win." },
@@ -60,7 +67,7 @@ interface Clear {
 
 /** What the clear-check is about: the tiles and which way platforms start. Title, author and sign text can change freely. */
 function fingerprint(l: Level): string {
-  const flips = [...l.flips].filter((i) => isPlank(l.tiles[i])).sort((a, b) => a - b);
+  const flips = [...l.flips].filter((i) => isMover(l.tiles[i])).sort((a, b) => a - b);
   return `${l.tiles.join("")}/${flips.join(",")}`;
 }
 
@@ -79,12 +86,12 @@ async function loadDraft(): Promise<{ level: Level; clear: Clear | null } | null
   try {
     const r = new Reader(await unpack(s));
     const v = r.u8();
-    // draft v1 predates platform directions
+    // draft v1 predates platform directions and the Down button
     if (v !== 1 && v !== DRAFT_VERSION) throw new Error(`unknown draft version ${v}`);
     const level = readLevel(r, v === 1 ? 1 : 2);
     let clear: Clear | null = null;
     if (r.u8() === 1) {
-      const inputs = readReplay(r);
+      const inputs = readReplay(r, v === 1 ? 1 : 2);
       const out = runReplay(level, inputs);
       if (out.status === "won") clear = { fp: fingerprint(level), inputs, frames: out.frames };
     }
@@ -213,7 +220,8 @@ export async function startEditor(root: HTMLElement) {
     const ok = cleared();
     if (mode === "test") {
       testBtn.innerHTML = `■ Stop <kbd>Enter</kbd>`;
-      tip.innerHTML = `Arrows/WASD to run, Space/Z/↑ to jump, <kbd>R</kbd> to restart, <kbd>Esc</kbd> to stop.`;
+      const drop = hasPlanks(level) ? ", ↓ to drop through planks" : "";
+      tip.innerHTML = `Arrows/WASD to run, Space/Z/↑ to jump${drop}, <kbd>R</kbd> to restart, <kbd>Esc</kbd> to stop.`;
     } else {
       testBtn.innerHTML = `▶ Test <kbd>Enter</kbd>`;
       tip.innerHTML = `<b>${tl.name}</b> — ${tl.tip} <span class="dim">Click and drag to paint, right-click to erase.</span>`;
@@ -354,7 +362,7 @@ export async function startEditor(root: HTMLElement) {
       return;
     }
     // and clicking a platform with its own tool flips which way it starts
-    if (!erase && isPlank(tool) && level.tiles[i] === tool) {
+    if (!erase && isMover(tool) && level.tiles[i] === tool) {
       flipPlank(i);
       return;
     }

@@ -201,7 +201,8 @@ export function drawScene(ctx: CanvasRenderingContext2D, level: Level, o: DrawOp
   ctx.drawImage(a.bg, 0, 0);
   if (o.editor) drawGrid(ctx);
   const plats = platformsOf(level);
-  for (const pl of plats) drawTrack(ctx, pl.kind, pl.x >> 8, pl.y >> 8, pl.w >> 8, pl.lo >> 8, pl.hi >> 8, !!o.editor);
+  for (const pl of plats)
+    if (pl.kind !== T.Bridge) drawTrack(ctx, pl.kind, pl.x >> 8, pl.y >> 8, pl.w >> 8, pl.lo >> 8, pl.hi >> 8, !!o.editor);
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const i = r * COLS + c;
@@ -242,7 +243,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, level: Level, o: DrawOp
   for (const pl of plats) {
     const at = platPos(pl, frame);
     drawPlank(ctx, pl.kind, at.x >> 8, at.y >> 8, pl.w >> 8);
-    if (o.editor) drawStartArrow(ctx, pl.kind, at.x >> 8, at.y >> 8, pl.w >> 8, startDir(pl));
+    if (o.editor && pl.kind !== T.Bridge) drawStartArrow(ctx, pl.kind, at.x >> 8, at.y >> 8, pl.w >> 8, startDir(pl));
   }
   if (o.hover) drawHover(ctx, o.hover, o.t);
 }
@@ -271,26 +272,40 @@ const ARROWS: Record<number, string[]> = {
   [T.Lift]: [".k..kkk", "kkk..k."],
 };
 
-/** A plank `w` px wide with its top-left at x, y. Platforms are wood, lifts are metal. */
+// body, highlight, shade
+const PLANK_LOOK: Record<number, [string, string, string]> = {
+  [T.Platform]: [PAL.wood, PAL.apricot, PAL.woodDark],
+  [T.Lift]: [PAL.stone, PAL.bone, "#6b5f70"],
+  [T.Bridge]: [PAL.sand, PAL.cream, PAL.sandDark],
+};
+
+/**
+ * A plank `w` px wide with its top-left at x, y. Platforms are wood with arrows,
+ * lifts are metal with arrows, bridges are pale slats.
+ */
 function drawPlank(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, w: number) {
-  const lift = kind === T.Lift;
+  const [body, light, shade] = PLANK_LOOK[kind];
   const H = PLANK_H;
   ctx.fillStyle = PAL.ink;
   ctx.fillRect(x + 1, y, w - 2, H);
   ctx.fillRect(x, y + 1, w, H - 2);
-  ctx.fillStyle = lift ? PAL.stone : PAL.wood;
+  ctx.fillStyle = body;
   ctx.fillRect(x + 1, y + 1, w - 2, H - 2);
-  ctx.fillStyle = lift ? PAL.bone : PAL.apricot;
+  ctx.fillStyle = light;
   ctx.fillRect(x + 1, y + 1, w - 2, 1);
-  ctx.fillStyle = lift ? "#6b5f70" : PAL.woodDark;
+  ctx.fillStyle = shade;
   ctx.fillRect(x + 1, y + H - 2, w - 2, 1);
   const art = ARROWS[kind];
-  const top = y + (lift ? 2 : 1);
+  const top = y + (kind === T.Lift ? 2 : 1);
   for (let tx = x; tx < x + w; tx += TILE) {
-    ctx.fillStyle = lift ? "#6b5f70" : PAL.woodDark;
-    const left = tx + ((TILE - art[0].length) >> 1);
-    for (let r = 0; r < art.length; r++)
-      for (let c = 0; c < art[r].length; c++) if (art[r][c] === "k") ctx.fillRect(left + c, top + r, 1, 1);
+    ctx.fillStyle = shade;
+    if (art) {
+      const left = tx + ((TILE - art[0].length) >> 1);
+      for (let r = 0; r < art.length; r++)
+        for (let c = 0; c < art[r].length; c++) if (art[r][c] === "k") ctx.fillRect(left + c, top + r, 1, 1);
+    } else {
+      for (let sx = 4; sx < TILE; sx += 4) ctx.fillRect(tx + sx, y + 2, 1, H - 3);
+    }
     // a seam where tiles join
     ctx.fillStyle = PAL.ink;
     if (tx > x) ctx.fillRect(tx, y + 2, 1, H - 3);
@@ -351,7 +366,7 @@ function drawHover(ctx: CanvasRenderingContext2D, h: { c: number; r: number; til
         ? null
         : { [T.Spike]: a.tiles.spike, [T.Spring]: a.tiles.spring, [T.Crumble]: a.tiles.crumble, [T.Goal]: a.tiles.goal, [T.Sign]: a.tiles.sign, [T.Start]: a.horse.stand.right }[h.tile];
     if (img) ctx.drawImage(img, x, y);
-    else if (h.tile === T.Platform || h.tile === T.Lift) drawPlank(ctx, h.tile, x, y, TILE);
+    else if (h.tile === T.Platform || h.tile === T.Lift || h.tile === T.Bridge) drawPlank(ctx, h.tile, x, y, TILE);
     else {
       ctx.fillStyle = PAL.dirt;
       ctx.fillRect(x, y, TILE, TILE);
@@ -526,6 +541,7 @@ export function tileIcon(tile: number): string {
       break;
     case T.Platform:
     case T.Lift:
+    case T.Bridge:
       drawPlank(ctx, tile, 0, 5, 16);
       break;
   }
